@@ -38,6 +38,31 @@ function daysSince(isoDate: string): number {
   return Math.floor((now.getTime() - then.getTime()) / (1000 * 60 * 60 * 24));
 }
 
+type CompletionStatus = { label: string; className: string };
+
+function completionStatus(dueDate: string, completedAtIso: string): CompletionStatus {
+  const due = new Date(new Date(dueDate).toDateString());
+  const completed = new Date(new Date(completedAtIso).toDateString());
+  const diffDays = Math.round((due.getTime() - completed.getTime()) / (1000 * 60 * 60 * 24));
+
+  if (diffDays > 0) {
+    return {
+      label: `Sớm ${diffDays} ngày`,
+      className: "px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 font-medium",
+    };
+  }
+  if (diffDays === 0) {
+    return {
+      label: "Đúng hạn",
+      className: "px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 font-medium",
+    };
+  }
+  return {
+    label: `Trễ ${Math.abs(diffDays)} ngày`,
+    className: "px-1.5 py-0.5 rounded bg-red-100 text-red-600 font-medium",
+  };
+}
+
 export function CardView({
   card,
   columnId,
@@ -65,6 +90,10 @@ export function CardView({
   const stuckDays =
     !columnIsDone && card.enteredColumnAt ? daysSince(card.enteredColumnAt) : 0;
   const isStuck = stuckDays >= STUCK_WARNING_DAYS;
+  const completion =
+    columnIsDone && card.dueDate && card.enteredColumnAt
+      ? completionStatus(card.dueDate, card.enteredColumnAt)
+      : null;
 
   return (
     <>
@@ -94,24 +123,30 @@ export function CardView({
           <span className={`px-1.5 py-0.5 rounded ${PRIORITY_STYLES[card.priority]}`}>
             {PRIORITY_LABEL[card.priority]}
           </span>
-          {dueDays !== null && (
-            <span
-              className={
-                dueDays < 0
-                  ? "px-1.5 py-0.5 rounded bg-red-100 text-red-600 font-medium"
-                  : dueDays <= DUE_SOON_DAYS
-                    ? "px-1.5 py-0.5 rounded bg-orange-100 text-orange-600 font-medium"
-                    : "text-gray-400"
-              }
-            >
-              {dueDays < 0
-                ? `Quá hạn ${Math.abs(dueDays)} ngày`
-                : dueDays === 0
-                  ? "Hết hạn hôm nay"
-                  : dueDays <= DUE_SOON_DAYS
-                    ? `Còn ${dueDays} ngày`
-                    : card.dueDate}
+          {completion ? (
+            <span className={completion.className} title="So với hạn chót lúc hoàn thành">
+              ✔ {completion.label}
             </span>
+          ) : (
+            dueDays !== null && (
+              <span
+                className={
+                  dueDays < 0
+                    ? "px-1.5 py-0.5 rounded bg-red-100 text-red-600 font-medium"
+                    : dueDays <= DUE_SOON_DAYS
+                      ? "px-1.5 py-0.5 rounded bg-orange-100 text-orange-600 font-medium"
+                      : "text-gray-400"
+                }
+              >
+                {dueDays < 0
+                  ? `Quá hạn ${Math.abs(dueDays)} ngày`
+                  : dueDays === 0
+                    ? "Hết hạn hôm nay"
+                    : dueDays <= DUE_SOON_DAYS
+                      ? `Còn ${dueDays} ngày`
+                      : card.dueDate}
+              </span>
+            )
           )}
           {isStuck && (
             <span

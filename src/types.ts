@@ -15,6 +15,8 @@ export interface Column {
   title: string;
   order: number;
   cards: Card[];
+  isDone?: boolean;
+  wipLimit?: number;
 }
 
 export interface Board {
@@ -30,4 +32,6 @@ export type BoardAction =
   | { type: "addCard"; columnId: string; title: string }
   | { type: "updateCard"; columnId: string; cardId: string; patch: Partial<Omit<Card, "id">> }
   | { type: "removeCard"; columnId: string; cardId: string }
-  | { type: "moveCard"; cardId: string; fromColumnId: string; toColumnId: string; toIndex: number };
+  | { type: "moveCard"; cardId: string; fromColumnId: string; toColumnId: string; toIndex: number }
+  | { type: "setColumnDone"; columnId: string; isDone: boolean }
+  | { type: "setWipLimit"; columnId: string; wipLimit?: number };

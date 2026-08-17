@@ -112,4 +112,27 @@ describe("boardReducer", () => {
     });
     expect(next.columns[0].cards.map((c) => c.id)).toEqual(["b", "a"]);
   });
+
+  it("setColumnDone marks a column as done", () => {
+    const board = createDefaultBoard();
+    const columnId = board.columns[2].id;
+    const next = boardReducer(board, { type: "setColumnDone", columnId, isDone: true });
+    expect(next.columns[2].isDone).toBe(true);
+    expect(next.columns[0].isDone).toBeFalsy();
+  });
+
+  it("setWipLimit sets a numeric limit on a column", () => {
+    const board = createDefaultBoard();
+    const columnId = board.columns[0].id;
+    const next = boardReducer(board, { type: "setWipLimit", columnId, wipLimit: 3 });
+    expect(next.columns[0].wipLimit).toBe(3);
+  });
+
+  it("setWipLimit with undefined clears the limit", () => {
+    const board = createDefaultBoard();
+    const columnId = board.columns[0].id;
+    const withLimit = boardReducer(board, { type: "setWipLimit", columnId, wipLimit: 3 });
+    const cleared = boardReducer(withLimit, { type: "setWipLimit", columnId, wipLimit: undefined });
+    expect(cleared.columns[0].wipLimit).toBeUndefined();
+  });
 });

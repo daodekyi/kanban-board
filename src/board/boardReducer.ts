@@ -8,6 +8,7 @@ export function createDefaultBoard(): Board {
     title,
     order: i,
     cards: [],
+    isDone: title === "Done",
   }));
   return { id: uuidv4(), title: "My Board", columns };
 }
@@ -114,6 +115,24 @@ export function boardReducer(state: Board, action: BoardAction): Board {
           }
           return c;
         }),
+      };
+    }
+
+    case "setColumnDone": {
+      return {
+        ...state,
+        columns: state.columns.map((c) =>
+          c.id === action.columnId ? { ...c, isDone: action.isDone } : c
+        ),
+      };
+    }
+
+    case "setWipLimit": {
+      return {
+        ...state,
+        columns: state.columns.map((c) =>
+          c.id === action.columnId ? { ...c, wipLimit: action.wipLimit } : c
+        ),
       };
     }
 

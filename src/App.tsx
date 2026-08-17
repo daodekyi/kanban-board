@@ -1,8 +1,16 @@
+import { BoardProvider } from "./board/BoardContext";
+import { Board } from "./board/Board";
+
 function App() {
   return (
-    <div className="min-h-screen p-6">
-      <h1 className="text-2xl font-semibold">Kanban</h1>
-    </div>
+    <BoardProvider>
+      <div className="min-h-screen">
+        <header className="px-6 pt-4">
+          <h1 className="text-xl font-semibold text-gray-800">Kanban</h1>
+        </header>
+        <Board />
+      </div>
+    </BoardProvider>
   );
 }
 

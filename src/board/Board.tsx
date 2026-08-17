@@ -1,0 +1,112 @@
+import { useState } from "react";
+import {
+  DndContext,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import { useBoard } from "./BoardContext";
+import { ColumnView } from "./Column";
+
+export function Board() {
+  const { board, dispatch } = useBoard();
+  const [addingColumn, setAddingColumn] = useState(false);
+  const [newColumnTitle, setNewColumnTitle] = useState("");
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
+  const handleAddColumn = () => {
+    const title = newColumnTitle.trim();
+    if (title) {
+      dispatch({ type: "addColumn", title });
+    }
+    setNewColumnTitle("");
+    setAddingColumn(false);
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over) return;
+
+    const cardId = String(active.id);
+    const fromColumn = board.columns.find((c) => c.cards.some((card) => card.id === cardId));
+    if (!fromColumn) return;
+
+    const overId = String(over.id);
+    let toColumn = board.columns.find((c) => c.id === overId);
+    let toIndex: number;
+
+    if (toColumn) {
+      toIndex = toColumn.cards.length;
+    } else {
+      toColumn = board.columns.find((c) => c.cards.some((card) => card.id === overId));
+      if (!toColumn) return;
+      toIndex = toColumn.cards.findIndex((card) => card.id === overId);
+    }
+
+    if (fromColumn.id === toColumn.id) {
+      const currentIndex = fromColumn.cards.findIndex((card) => card.id === cardId);
+      if (currentIndex === toIndex) return;
+    }
+
+    dispatch({
+      type: "moveCard",
+      cardId,
+      fromColumnId: fromColumn.id,
+      toColumnId: toColumn.id,
+      toIndex,
+    });
+  };
+
+  return (
+    <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+      <div className="flex gap-4 p-6 overflow-x-auto h-screen">
+        {board.columns
+          .slice()
+          .sort((a, b) => a.order - b.order)
+          .map((column) => (
+            <ColumnView key={column.id} column={column} />
+          ))}
+
+        <div className="w-72 flex-shrink-0">
+          {addingColumn ? (
+            <div className="bg-gray-100 rounded-lg p-3 space-y-2">
+              <input
+                autoFocus
+                className="w-full text-sm rounded px-2 py-1.5 border border-gray-200"
+                placeholder="Tên cột..."
+                value={newColumnTitle}
+                onChange={(e) => setNewColumnTitle(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleAddColumn()}
+              />
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={handleAddColumn}
+                  className="px-2 py-1 text-xs rounded bg-blue-500 text-white"
+                >
+                  Thêm
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAddingColumn(false)}
+                  className="px-2 py-1 text-xs rounded border border-gray-200"
+                >
+                  Hủy
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setAddingColumn(true)}
+              className="text-sm text-gray-500 hover:text-gray-700 bg-gray-100/50 rounded-lg px-3 py-2 w-full text-left"
+            >
+              + Thêm cột
+            </button>
+          )}
+        </div>
+      </div>
+    </DndContext>
+  );
+}

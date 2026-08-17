@@ -1,32 +1,25 @@
-# React + TypeScript + Vite
+# Kanban
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Ứng dụng Kanban board chạy hoàn toàn trên trình duyệt (không backend). Xây dựng bằng Vite + React + TypeScript + Tailwind CSS, kéo thả bằng dnd-kit, dữ liệu lưu trong localStorage.
 
-Currently, two official plugins are available:
+## Chạy dự án
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm install
+npm run dev
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+Mở URL được in ra (mặc định http://localhost:5173).
+
+## Kiểm thử
+
+```bash
+npx vitest run
+```
+
+## Tính năng
+
+- Tạo/sửa/xóa cột và thẻ
+- Kéo thả thẻ giữa các cột và trong cùng cột
+- Chi tiết thẻ: mô tả, nhãn màu, hạn chót, độ ưu tiên
+- Dữ liệu tự động lưu vào localStorage

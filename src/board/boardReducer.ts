@@ -2,13 +2,13 @@ import { v4 as uuidv4 } from "uuid";
 import type { Board, BoardAction, Column } from "../types";
 
 export function createDefaultBoard(): Board {
-  const titles = ["To Do", "In Progress", "Done"];
+  const titles = ["1. To Do", "2. In Progress", "3. Review", "4. Done"];
   const columns: Column[] = titles.map((title, i) => ({
     id: uuidv4(),
     title,
     order: i,
     cards: [],
-    isDone: title === "Done",
+    isDone: title === "4. Done",
   }));
   return { id: uuidv4(), title: "My Board", columns };
 }

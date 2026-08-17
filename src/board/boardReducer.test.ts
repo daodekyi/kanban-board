@@ -16,10 +16,16 @@ function boardWithOneCard(): Board {
 }
 
 describe("createDefaultBoard", () => {
-  it("seeds three columns: To Do, In Progress, Done", () => {
+  it("seeds four numbered columns: To Do, In Progress, Review, Done", () => {
     const board = createDefaultBoard();
-    expect(board.columns.map((c) => c.title)).toEqual(["To Do", "In Progress", "Done"]);
+    expect(board.columns.map((c) => c.title)).toEqual([
+      "1. To Do",
+      "2. In Progress",
+      "3. Review",
+      "4. Done",
+    ]);
     expect(board.columns.every((c) => c.cards.length === 0)).toBe(true);
+    expect(board.columns[3].isDone).toBe(true);
   });
 });
 
@@ -27,9 +33,9 @@ describe("boardReducer", () => {
   it("addColumn appends a new column with next order", () => {
     const board = createDefaultBoard();
     const next = boardReducer(board, { type: "addColumn", title: "Backlog" });
-    expect(next.columns).toHaveLength(4);
-    expect(next.columns[3].title).toBe("Backlog");
-    expect(next.columns[3].order).toBe(3);
+    expect(next.columns).toHaveLength(5);
+    expect(next.columns[4].title).toBe("Backlog");
+    expect(next.columns[4].order).toBe(4);
   });
 
   it("removeColumn removes the column by id", () => {
@@ -37,7 +43,7 @@ describe("boardReducer", () => {
     const targetId = board.columns[0].id;
     const next = boardReducer(board, { type: "removeColumn", columnId: targetId });
     expect(next.columns.find((c) => c.id === targetId)).toBeUndefined();
-    expect(next.columns).toHaveLength(2);
+    expect(next.columns).toHaveLength(3);
   });
 
   it("renameColumn updates the title", () => {

@@ -5,6 +5,12 @@ import type { Column } from "../types";
 import { CardView } from "./Card";
 import { useBoard } from "./BoardContext";
 
+function splitLeadingNumber(title: string): { number: string | null; rest: string } {
+  const match = title.match(/^(\d+)\.\s*(.*)$/);
+  if (!match) return { number: null, rest: title };
+  return { number: match[1], rest: match[2] };
+}
+
 export function ColumnView({ column, searchQuery = "" }: { column: Column; searchQuery?: string }) {
   const { dispatch } = useBoard();
   const [addingCard, setAddingCard] = useState(false);
@@ -15,6 +21,7 @@ export function ColumnView({ column, searchQuery = "" }: { column: Column; searc
   const { setNodeRef } = useDroppable({ id: column.id });
 
   const overLimit = column.wipLimit != null && column.cards.length > column.wipLimit;
+  const { number: titleNumber, rest: titleRest } = splitLeadingNumber(column.title);
 
   const query = searchQuery.trim().toLowerCase();
   const matchesSearch = (cardTitle: string, description?: string) =>
@@ -86,10 +93,15 @@ export function ColumnView({ column, searchQuery = "" }: { column: Column; searc
         ) : (
           <div className="flex items-center gap-1.5 min-w-0">
             <span
-              className="text-sm font-semibold cursor-text truncate"
+              className="flex items-center gap-1.5 min-w-0 cursor-text"
               onClick={() => setEditingTitle(true)}
             >
-              {column.title}
+              {titleNumber && (
+                <span className="flex items-center justify-center w-5 h-5 rounded-full bg-black text-white text-xs font-bold shrink-0">
+                  {titleNumber}
+                </span>
+              )}
+              <span className="text-sm font-semibold truncate">{titleRest}</span>
             </span>
             <button
               type="button"

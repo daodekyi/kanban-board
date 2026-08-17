@@ -58,9 +58,31 @@ export function Board() {
     });
   };
 
+  const totalCards = board.columns.reduce((sum, c) => sum + c.cards.length, 0);
+  const doneCards = board.columns
+    .filter((c) => c.isDone)
+    .reduce((sum, c) => sum + c.cards.length, 0);
+  const percentDone = totalCards === 0 ? 0 : Math.round((doneCards / totalCards) * 100);
+
   return (
     <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-      <div className="flex gap-4 p-6 overflow-x-auto h-screen">
+      <div className="flex flex-col h-screen">
+        <div className="px-6 pt-1 pb-3">
+          <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+            <span>Tiến độ tổng thể</span>
+            <span className="font-medium">
+              {doneCards}/{totalCards} thẻ ({percentDone}%)
+            </span>
+          </div>
+          <div className="h-2 rounded-full bg-gray-200 overflow-hidden max-w-md">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-teal-500 transition-all duration-300"
+              style={{ width: `${percentDone}%` }}
+            />
+          </div>
+        </div>
+
+      <div className="flex gap-4 px-6 pb-6 overflow-x-auto flex-1">
         {board.columns
           .slice()
           .sort((a, b) => a.order - b.order)
@@ -106,6 +128,7 @@ export function Board() {
             </button>
           )}
         </div>
+      </div>
       </div>
     </DndContext>
   );

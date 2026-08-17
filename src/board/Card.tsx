@@ -10,15 +10,24 @@ const PRIORITY_STYLES: Record<Priority, string> = {
   high: "bg-red-100 text-red-700",
 };
 
+const PRIORITY_BORDER: Record<Priority, string> = {
+  low: "border-l-gray-300",
+  medium: "border-l-amber-400",
+  high: "border-l-red-400",
+};
+
 const PRIORITY_LABEL: Record<Priority, string> = {
   low: "Thấp",
   medium: "Trung bình",
   high: "Cao",
 };
 
-function isOverdue(dueDate?: string): boolean {
-  if (!dueDate) return false;
-  return new Date(dueDate) < new Date(new Date().toDateString());
+const DUE_SOON_DAYS = 3;
+
+function daysUntil(dueDate: string): number {
+  const today = new Date(new Date().toDateString());
+  const due = new Date(dueDate);
+  return Math.round((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 }
 
 export function CardView({ card, columnId }: { card: Card; columnId: string }) {
@@ -33,6 +42,8 @@ export function CardView({ card, columnId }: { card: Card; columnId: string }) {
     opacity: isDragging ? 0.5 : 1,
   };
 
+  const dueDays = card.dueDate ? daysUntil(card.dueDate) : null;
+
   return (
     <>
       <div
@@ -41,7 +52,7 @@ export function CardView({ card, columnId }: { card: Card; columnId: string }) {
         {...attributes}
         {...listeners}
         onClick={() => setOpen(true)}
-        className="bg-white rounded-md shadow-sm border border-gray-100 p-3 cursor-pointer hover:shadow-md transition-shadow space-y-2"
+        className={`bg-white rounded-md shadow-sm border border-gray-100 border-l-4 ${PRIORITY_BORDER[card.priority]} p-3 cursor-pointer hover:shadow-md transition-shadow space-y-2`}
       >
         <div className="text-sm font-medium text-gray-800">{card.title}</div>
 
@@ -61,9 +72,23 @@ export function CardView({ card, columnId }: { card: Card; columnId: string }) {
           <span className={`px-1.5 py-0.5 rounded ${PRIORITY_STYLES[card.priority]}`}>
             {PRIORITY_LABEL[card.priority]}
           </span>
-          {card.dueDate && (
-            <span className={isOverdue(card.dueDate) ? "text-red-500 font-medium" : "text-gray-400"}>
-              {card.dueDate}
+          {dueDays !== null && (
+            <span
+              className={
+                dueDays < 0
+                  ? "px-1.5 py-0.5 rounded bg-red-100 text-red-600 font-medium"
+                  : dueDays <= DUE_SOON_DAYS
+                    ? "px-1.5 py-0.5 rounded bg-orange-100 text-orange-600 font-medium"
+                    : "text-gray-400"
+              }
+            >
+              {dueDays < 0
+                ? `Quá hạn ${Math.abs(dueDays)} ngày`
+                : dueDays === 0
+                  ? "Hết hạn hôm nay"
+                  : dueDays <= DUE_SOON_DAYS
+                    ? `Còn ${dueDays} ngày`
+                    : card.dueDate}
             </span>
           )}
         </div>

@@ -13,6 +13,7 @@ export function Board() {
   const { board, dispatch } = useBoard();
   const [addingColumn, setAddingColumn] = useState(false);
   const [newColumnTitle, setNewColumnTitle] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   const handleAddColumn = () => {
@@ -67,7 +68,7 @@ export function Board() {
   return (
     <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
       <div className="flex flex-col h-screen">
-        <div className="px-6 pt-1 pb-3">
+        <div className="px-6 pt-1 pb-3 space-y-2">
           <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
             <span>Tiến độ tổng thể</span>
             <span className="font-medium">
@@ -80,6 +81,24 @@ export function Board() {
               style={{ width: `${percentDone}%` }}
             />
           </div>
+          <div className="relative max-w-xs">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="🔍 Tìm thẻ theo tiêu đề hoặc mô tả..."
+              className="w-full text-sm rounded-md border border-gray-200 px-3 py-1.5 focus:outline-none focus:border-indigo-400"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs"
+              >
+                ✕
+              </button>
+            )}
+          </div>
         </div>
 
       <div className="flex gap-4 px-6 pb-6 overflow-x-auto flex-1">
@@ -87,7 +106,7 @@ export function Board() {
           .slice()
           .sort((a, b) => a.order - b.order)
           .map((column) => (
-            <ColumnView key={column.id} column={column} />
+            <ColumnView key={column.id} column={column} searchQuery={searchQuery} />
           ))}
 
         <div className="w-72 flex-shrink-0">

@@ -5,7 +5,7 @@ import type { Column } from "../types";
 import { CardView } from "./Card";
 import { useBoard } from "./BoardContext";
 
-export function ColumnView({ column }: { column: Column }) {
+export function ColumnView({ column, searchQuery = "" }: { column: Column; searchQuery?: string }) {
   const { dispatch } = useBoard();
   const [addingCard, setAddingCard] = useState(false);
   const [newCardTitle, setNewCardTitle] = useState("");
@@ -15,6 +15,13 @@ export function ColumnView({ column }: { column: Column }) {
   const { setNodeRef } = useDroppable({ id: column.id });
 
   const overLimit = column.wipLimit != null && column.cards.length > column.wipLimit;
+
+  const query = searchQuery.trim().toLowerCase();
+  const matchesSearch = (cardTitle: string, description?: string) =>
+    query === "" ||
+    cardTitle.toLowerCase().includes(query) ||
+    (description ?? "").toLowerCase().includes(query);
+  const matchCount = column.cards.filter((c) => matchesSearch(c.title, c.description)).length;
 
   const handleAddCard = () => {
     const title = newCardTitle.trim();
@@ -90,8 +97,8 @@ export function ColumnView({ column }: { column: Column }) {
               title="Đặt giới hạn số thẻ (WIP limit)"
               className={`text-xs font-normal shrink-0 ${overLimit ? "text-red-500 font-semibold" : "text-gray-400"}`}
             >
-              ({column.cards.length}
-              {column.wipLimit != null ? `/${column.wipLimit}` : ""})
+              ({query !== "" ? `${matchCount}/${column.cards.length}` : column.cards.length}
+              {column.wipLimit != null ? `/${column.wipLimit} tối đa` : ""})
             </button>
           </div>
         )}
@@ -126,7 +133,12 @@ export function ColumnView({ column }: { column: Column }) {
           strategy={verticalListSortingStrategy}
         >
           {column.cards.map((card) => (
-            <CardView key={card.id} card={card} columnId={column.id} />
+            <CardView
+              key={card.id}
+              card={card}
+              columnId={column.id}
+              hidden={!matchesSearch(card.title, card.description)}
+            />
           ))}
         </SortableContext>
       </div>

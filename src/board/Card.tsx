@@ -30,7 +30,15 @@ function daysUntil(dueDate: string): number {
   return Math.round((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 }
 
-export function CardView({ card, columnId }: { card: Card; columnId: string }) {
+export function CardView({
+  card,
+  columnId,
+  hidden = false,
+}: {
+  card: Card;
+  columnId: string;
+  hidden?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: card.id,
@@ -40,6 +48,7 @@ export function CardView({ card, columnId }: { card: Card; columnId: string }) {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.5 : 1,
+    display: hidden ? "none" : undefined,
   };
 
   const dueDays = card.dueDate ? daysUntil(card.dueDate) : null;

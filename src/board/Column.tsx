@@ -137,6 +137,7 @@ export function ColumnView({ column, searchQuery = "" }: { column: Column; searc
               key={card.id}
               card={card}
               columnId={column.id}
+              columnIsDone={column.isDone}
               hidden={!matchesSearch(card.title, card.description)}
             />
           ))}

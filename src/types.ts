@@ -8,6 +8,7 @@ export interface Card {
   dueDate?: string;
   priority: Priority;
   order: number;
+  enteredColumnAt?: string;
 }
 
 export interface Column {

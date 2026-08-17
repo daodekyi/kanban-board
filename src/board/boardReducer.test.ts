@@ -62,6 +62,7 @@ describe("boardReducer", () => {
     expect(col.cards[0].title).toBe("New task");
     expect(col.cards[0].priority).toBe("medium");
     expect(col.cards[0].labels).toEqual([]);
+    expect(col.cards[0].enteredColumnAt).toEqual(expect.any(String));
   });
 
   it("updateCard patches fields on the matching card", () => {
@@ -100,6 +101,57 @@ describe("boardReducer", () => {
     expect(next.columns[0].cards).toHaveLength(0);
     expect(next.columns[1].cards).toHaveLength(1);
     expect(next.columns[1].cards[0].id).toBe("card-1");
+  });
+
+  it("moveCard across columns refreshes enteredColumnAt", () => {
+    const board = createDefaultBoard();
+    const fromColumnId = board.columns[0].id;
+    const toColumnId = board.columns[1].id;
+    board.columns[0].cards = [
+      {
+        id: "card-1",
+        title: "First card",
+        labels: [],
+        priority: "medium",
+        order: 0,
+        enteredColumnAt: "2020-01-01T00:00:00.000Z",
+      },
+    ];
+    const next = boardReducer(board, {
+      type: "moveCard",
+      cardId: "card-1",
+      fromColumnId,
+      toColumnId,
+      toIndex: 0,
+    });
+    const moved = next.columns[1].cards[0];
+    expect(moved.enteredColumnAt).not.toBe("2020-01-01T00:00:00.000Z");
+    expect(moved.enteredColumnAt).toEqual(expect.any(String));
+  });
+
+  it("moveCard within the same column keeps enteredColumnAt unchanged", () => {
+    const board = createDefaultBoard();
+    const columnId = board.columns[0].id;
+    board.columns[0].cards = [
+      {
+        id: "a",
+        title: "A",
+        labels: [],
+        priority: "medium",
+        order: 0,
+        enteredColumnAt: "2020-01-01T00:00:00.000Z",
+      },
+      { id: "b", title: "B", labels: [], priority: "medium", order: 1 },
+    ];
+    const next = boardReducer(board, {
+      type: "moveCard",
+      cardId: "a",
+      fromColumnId: columnId,
+      toColumnId: columnId,
+      toIndex: 1,
+    });
+    const moved = next.columns[0].cards.find((c) => c.id === "a")!;
+    expect(moved.enteredColumnAt).toBe("2020-01-01T00:00:00.000Z");
   });
 
   it("moveCard reorders within the same column", () => {

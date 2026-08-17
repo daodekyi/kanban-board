@@ -52,6 +52,7 @@ export function boardReducer(state: Board, action: BoardAction): Board {
             labels: [] as string[],
             priority: "medium" as const,
             order: c.cards.length,
+            enteredColumnAt: new Date().toISOString(),
           };
           return { ...c, cards: [...c.cards, card] };
         }),
@@ -90,6 +91,11 @@ export function boardReducer(state: Board, action: BoardAction): Board {
       const movingCard = fromColumn?.cards.find((c) => c.id === cardId);
       if (!movingCard) return state;
 
+      const changingColumn = fromColumnId !== toColumnId;
+      const cardToInsert = changingColumn
+        ? { ...movingCard, enteredColumnAt: new Date().toISOString() }
+        : movingCard;
+
       return {
         ...state,
         columns: state.columns.map((c) => {
@@ -97,7 +103,7 @@ export function boardReducer(state: Board, action: BoardAction): Board {
             const withoutCard = c.cards.filter((card) => card.id !== cardId);
             const reordered = [
               ...withoutCard.slice(0, toIndex),
-              movingCard,
+              cardToInsert,
               ...withoutCard.slice(toIndex),
             ];
             return { ...c, cards: reordered.map((card, i) => ({ ...card, order: i })) };
@@ -108,7 +114,7 @@ export function boardReducer(state: Board, action: BoardAction): Board {
           if (c.id === toColumnId) {
             const inserted = [
               ...c.cards.slice(0, toIndex),
-              movingCard,
+              cardToInsert,
               ...c.cards.slice(toIndex),
             ];
             return { ...c, cards: inserted.map((card, i) => ({ ...card, order: i })) };

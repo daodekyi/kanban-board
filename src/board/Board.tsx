@@ -77,7 +77,7 @@ export function Board() {
           </div>
           <div className="h-2 rounded-full bg-gray-200 overflow-hidden max-w-md">
             <div
-              className="h-full rounded-full bg-gradient-to-r from-indigo-300 via-purple-300 to-pink-300 transition-all duration-300"
+              className="h-full rounded-full bg-gradient-to-r from-orange-300 via-amber-300 to-yellow-300 transition-all duration-300"
               style={{ width: `${percentDone}%` }}
             />
           </div>

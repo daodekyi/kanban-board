@@ -43,6 +43,8 @@ export function CardModal({
   };
 
   const handleDelete = () => {
+    const confirmed = window.confirm(`Xóa thẻ "${card.title}"? Hành động này không thể hoàn tác.`);
+    if (!confirmed) return;
     dispatch({ type: "removeCard", columnId, cardId: card.id });
     onClose();
   };

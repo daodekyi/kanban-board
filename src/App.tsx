@@ -1,5 +1,6 @@
 import { BoardProvider } from "./board/BoardContext";
 import { Board } from "./board/Board";
+import { BoardSwitcher } from "./board/BoardSwitcher";
 import { ThemeProvider, useTheme } from "./theme/ThemeContext";
 
 function ThemeToggle() {
@@ -22,9 +23,12 @@ function App() {
       <BoardProvider>
         <div className="min-h-screen">
           <header className="px-6 pt-5 pb-1 flex items-center justify-between">
-            <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-orange-500 via-amber-400 to-yellow-400 bg-clip-text text-transparent">
-              ✨ Kanban Board
-            </h1>
+            <div className="flex items-center gap-3">
+              <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-orange-500 via-amber-400 to-yellow-400 bg-clip-text text-transparent">
+                ✨ Kanban Board
+              </h1>
+              <BoardSwitcher />
+            </div>
             <ThemeToggle />
           </header>
           <Board />

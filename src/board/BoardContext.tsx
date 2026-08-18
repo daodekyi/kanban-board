@@ -1,26 +1,35 @@
 import { createContext, useContext, useEffect, useReducer, type ReactNode } from "react";
-import type { Board, BoardAction } from "../types";
-import { boardReducer, createDefaultBoard } from "./boardReducer";
+import type { Board } from "../types";
+import { appReducer, createDefaultAppState, migrateToAppState, type AppAction } from "./appReducer";
 import { useLocalStorage } from "./useLocalStorage";
 
 interface BoardContextValue {
   board: Board;
-  dispatch: React.Dispatch<BoardAction>;
+  boards: Board[];
+  dispatch: React.Dispatch<AppAction>;
 }
 
 const BoardContext = createContext<BoardContextValue | null>(null);
 
 export function BoardProvider({ children }: { children: ReactNode }) {
-  const [stored, setStored] = useLocalStorage<Board>("kanban-board", createDefaultBoard());
-  const [board, dispatch] = useReducer(boardReducer, stored);
+  const [stored, setStored] = useLocalStorage<unknown>("kanban-board", null);
+  const [state, dispatch] = useReducer(
+    appReducer,
+    stored,
+    (initialStored) =>
+      initialStored ? migrateToAppState(initialStored) : createDefaultAppState()
+  );
 
   useEffect(() => {
-    setStored(board);
+    setStored(state);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [board]);
+  }, [state]);
+
+  const activeBoard =
+    state.boards.find((b) => b.id === state.activeBoardId) ?? state.boards[0];
 
   return (
-    <BoardContext.Provider value={{ board, dispatch }}>
+    <BoardContext.Provider value={{ board: activeBoard, boards: state.boards, dispatch }}>
       {children}
     </BoardContext.Provider>
   );

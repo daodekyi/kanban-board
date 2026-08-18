@@ -1,16 +1,16 @@
 import { v4 as uuidv4 } from "uuid";
 import type { Board, BoardAction, Column } from "../types";
 
-export function createDefaultBoard(): Board {
+export function createDefaultBoard(title = "My Board"): Board {
   const titles = ["1. To Do", "2. In Progress", "3. Review", "4. Done"];
-  const columns: Column[] = titles.map((title, i) => ({
+  const columns: Column[] = titles.map((columnTitle, i) => ({
     id: uuidv4(),
-    title,
+    title: columnTitle,
     order: i,
     cards: [],
-    isDone: title === "4. Done",
+    isDone: columnTitle === "4. Done",
   }));
-  return { id: uuidv4(), title: "My Board", columns };
+  return { id: uuidv4(), title, columns };
 }
 
 export function boardReducer(state: Board, action: BoardAction): Board {

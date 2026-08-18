@@ -50,23 +50,23 @@ export function CardModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-lg w-full max-w-md p-5 space-y-4">
+    <div className="fixed inset-0 bg-black/40 dark:bg-black/60 flex items-center justify-center z-50">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-lg w-full max-w-md p-5 space-y-4">
         <input
-          className="w-full text-lg font-semibold border-b border-gray-200 pb-2 focus:outline-none focus:border-blue-400"
+          className="w-full text-lg font-semibold border-b border-gray-200 dark:border-gray-700 bg-transparent text-gray-900 dark:text-gray-100 pb-2 focus:outline-none focus:border-blue-400"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
         />
 
         <textarea
-          className="w-full border border-gray-200 rounded p-2 text-sm min-h-[80px] focus:outline-none focus:border-blue-400"
+          className="w-full border border-gray-200 dark:border-gray-700 bg-transparent text-gray-900 dark:text-gray-100 rounded p-2 text-sm min-h-[80px] focus:outline-none focus:border-blue-400"
           placeholder="Mô tả..."
           value={description}
           onChange={(e) => setDescription(e.target.value)}
         />
 
         <div>
-          <div className="text-xs font-medium text-gray-500 mb-1">Nhãn</div>
+          <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Nhãn</div>
           <div className="flex gap-2">
             {LABEL_COLORS.map((color) => (
               <button
@@ -85,18 +85,18 @@ export function CardModal({
 
         <div className="flex gap-4">
           <div className="flex-1">
-            <div className="text-xs font-medium text-gray-500 mb-1">Hạn chót</div>
+            <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Hạn chót</div>
             <input
               type="date"
-              className="w-full border border-gray-200 rounded p-2 text-sm"
+              className="w-full border border-gray-200 dark:border-gray-700 bg-transparent text-gray-900 dark:text-gray-100 rounded p-2 text-sm"
               value={dueDate}
               onChange={(e) => setDueDate(e.target.value)}
             />
           </div>
           <div className="flex-1">
-            <div className="text-xs font-medium text-gray-500 mb-1">Độ ưu tiên</div>
+            <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Độ ưu tiên</div>
             <select
-              className="w-full border border-gray-200 rounded p-2 text-sm"
+              className="w-full border border-gray-200 dark:border-gray-700 bg-transparent text-gray-900 dark:text-gray-100 rounded p-2 text-sm"
               value={priority}
               onChange={(e) => setPriority(e.target.value as Priority)}
             >
@@ -111,7 +111,7 @@ export function CardModal({
           <button
             type="button"
             onClick={handleDelete}
-            className="text-red-500 text-sm hover:underline"
+            className="text-red-500 dark:text-red-400 text-sm hover:underline"
           >
             Xóa thẻ
           </button>
@@ -119,7 +119,7 @@ export function CardModal({
             <button
               type="button"
               onClick={onClose}
-              className="px-3 py-1.5 text-sm rounded border border-gray-200 hover:bg-gray-50"
+              className="px-3 py-1.5 text-sm rounded border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
             >
               Đóng
             </button>

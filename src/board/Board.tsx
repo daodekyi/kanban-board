@@ -69,13 +69,13 @@ export function Board() {
     <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
       <div className="flex flex-col h-screen">
         <div className="px-6 pt-1 pb-3 space-y-2">
-          <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+          <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 mb-1">
             <span>Tiến độ tổng thể</span>
             <span className="font-medium">
               {doneCards}/{totalCards} thẻ ({percentDone}%)
             </span>
           </div>
-          <div className="h-2 rounded-full bg-gray-200 overflow-hidden max-w-md">
+          <div className="h-2 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden max-w-md">
             <div
               className="h-full rounded-full bg-gradient-to-r from-orange-300 via-amber-300 to-yellow-300 transition-all duration-300"
               style={{ width: `${percentDone}%` }}
@@ -87,13 +87,13 @@ export function Board() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="🔍 Tìm thẻ theo tiêu đề hoặc mô tả..."
-              className="w-full text-sm rounded-md border border-gray-200 px-3 py-1.5 focus:outline-none focus:border-indigo-400"
+              className="w-full text-sm rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-1.5 focus:outline-none focus:border-indigo-400"
             />
             {searchQuery && (
               <button
                 type="button"
                 onClick={() => setSearchQuery("")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xs"
               >
                 ✕
               </button>
@@ -111,10 +111,10 @@ export function Board() {
 
         <div className="w-72 flex-shrink-0">
           {addingColumn ? (
-            <div className="bg-gray-100 rounded-lg p-3 space-y-2">
+            <div className="bg-gray-100 dark:bg-gray-800 rounded-lg p-3 space-y-2">
               <input
                 autoFocus
-                className="w-full text-sm rounded px-2 py-1.5 border border-gray-200"
+                className="w-full text-sm rounded px-2 py-1.5 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
                 placeholder="Tên cột..."
                 value={newColumnTitle}
                 onChange={(e) => setNewColumnTitle(e.target.value)}
@@ -131,7 +131,7 @@ export function Board() {
                 <button
                   type="button"
                   onClick={() => setAddingColumn(false)}
-                  className="px-2 py-1 text-xs rounded border border-gray-200"
+                  className="px-2 py-1 text-xs rounded border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300"
                 >
                   Hủy
                 </button>
@@ -141,7 +141,7 @@ export function Board() {
             <button
               type="button"
               onClick={() => setAddingColumn(true)}
-              className="text-sm text-gray-500 hover:text-gray-700 bg-gray-100/50 rounded-lg px-3 py-2 w-full text-left"
+              className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 bg-gray-100/50 dark:bg-gray-800/50 rounded-lg px-3 py-2 w-full text-left"
             >
               + Thêm cột
             </button>

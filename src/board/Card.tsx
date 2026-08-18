@@ -5,9 +5,9 @@ import type { Card, Priority } from "../types";
 import { CardModal } from "./CardModal";
 
 const PRIORITY_STYLES: Record<Priority, string> = {
-  low: "bg-gray-100 text-gray-600",
-  medium: "bg-amber-100 text-amber-700",
-  high: "bg-red-100 text-red-700",
+  low: "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300",
+  medium: "bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-400",
+  high: "bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-400",
 };
 
 const PRIORITY_BORDER: Record<Priority, string> = {
@@ -48,18 +48,20 @@ function completionStatus(dueDate: string, completedAtIso: string): CompletionSt
   if (diffDays > 0) {
     return {
       label: `Sớm ${diffDays} ngày`,
-      className: "px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 font-medium",
+      className:
+        "px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 font-medium",
     };
   }
   if (diffDays === 0) {
     return {
       label: "Đúng hạn",
-      className: "px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 font-medium",
+      className:
+        "px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 font-medium",
     };
   }
   return {
     label: `Trễ ${Math.abs(diffDays)} ngày`,
-    className: "px-1.5 py-0.5 rounded bg-red-100 text-red-600 font-medium",
+    className: "px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-950 text-red-600 dark:text-red-400 font-medium",
   };
 }
 
@@ -103,9 +105,9 @@ export function CardView({
         {...attributes}
         {...listeners}
         onClick={() => setOpen(true)}
-        className={`bg-white rounded-md shadow-sm border border-gray-100 border-l-4 ${PRIORITY_BORDER[card.priority]} p-3 cursor-pointer hover:shadow-md transition-shadow space-y-2`}
+        className={`bg-white dark:bg-gray-900 rounded-md shadow-sm border border-gray-100 dark:border-gray-800 border-l-4 ${PRIORITY_BORDER[card.priority]} p-3 cursor-pointer hover:shadow-md dark:hover:shadow-black/30 transition-shadow space-y-2`}
       >
-        <div className="text-sm font-medium text-gray-800">{card.title}</div>
+        <div className="text-sm font-medium text-gray-800 dark:text-gray-100">{card.title}</div>
 
         {card.labels.length > 0 && (
           <div className="flex gap-1">
@@ -132,10 +134,10 @@ export function CardView({
               <span
                 className={
                   dueDays < 0
-                    ? "px-1.5 py-0.5 rounded bg-red-100 text-red-600 font-medium"
+                    ? "px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-950 text-red-600 dark:text-red-400 font-medium"
                     : dueDays <= DUE_SOON_DAYS
-                      ? "px-1.5 py-0.5 rounded bg-orange-100 text-orange-600 font-medium"
-                      : "text-gray-400"
+                      ? "px-1.5 py-0.5 rounded bg-orange-100 dark:bg-orange-950 text-orange-600 dark:text-orange-400 font-medium"
+                      : "text-gray-400 dark:text-gray-500"
                 }
               >
                 {dueDays < 0
@@ -152,8 +154,8 @@ export function CardView({
             <span
               className={
                 stuckDays >= STUCK_DANGER_DAYS
-                  ? "px-1.5 py-0.5 rounded bg-red-50 text-red-500 flex items-center gap-0.5"
-                  : "px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 flex items-center gap-0.5"
+                  ? "px-1.5 py-0.5 rounded bg-red-50 dark:bg-red-950 text-red-500 dark:text-red-400 flex items-center gap-0.5"
+                  : "px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-300 flex items-center gap-0.5"
               }
               title="Thời gian thẻ nằm ở cột này (cycle time)"
             >

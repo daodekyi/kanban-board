@@ -142,8 +142,8 @@ export function ColumnView({ column, searchQuery = "" }: { column: Column; searc
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto flex flex-col">
-        <div ref={setNodeRef} className="px-3 space-y-2">
+      <div ref={setNodeRef} className="flex-1 overflow-y-auto flex flex-col">
+        <div className="px-3 space-y-2">
           <SortableContext
             items={column.cards.map((c) => c.id)}
             strategy={verticalListSortingStrategy}

@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from "uuid";
 import type { Board, BoardAction, Column } from "../types";
 
-export function createDefaultBoard(title = "My Board"): Board {
+export function createDefaultBoard(title = "Kanban Board"): Board {
   const titles = ["1. To Do", "2. In Progress", "3. Review", "4. Done"];
   const columns: Column[] = titles.map((columnTitle, i) => ({
     id: uuidv4(),

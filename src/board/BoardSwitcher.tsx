@@ -51,10 +51,14 @@ export function BoardSwitcher() {
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-1 text-sm font-medium text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white px-2 py-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800"
+        className="flex items-center gap-2 group"
       >
-        {board.title}
-        <span className="text-xs text-gray-400">▾</span>
+        <span className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-orange-500 via-amber-400 to-yellow-400 bg-clip-text text-transparent">
+          ✨ {board.title}
+        </span>
+        <span className="text-lg text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-200">
+          ▾
+        </span>
       </button>
 
       {open && (

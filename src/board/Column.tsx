@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { useDroppable } from "@dnd-kit/core";
+import { AnimatePresence } from "framer-motion";
 import type { Column } from "../types";
 import { CardView } from "./Card";
 import { useBoard } from "./BoardContext";
@@ -146,15 +147,17 @@ export function ColumnView({ column, searchQuery = "" }: { column: Column; searc
           items={column.cards.map((c) => c.id)}
           strategy={verticalListSortingStrategy}
         >
-          {column.cards.map((card) => (
-            <CardView
-              key={card.id}
-              card={card}
-              columnId={column.id}
-              columnIsDone={column.isDone}
-              hidden={!matchesSearch(card.title, card.description)}
-            />
-          ))}
+          <AnimatePresence initial={false}>
+            {column.cards.map((card) => (
+              <CardView
+                key={card.id}
+                card={card}
+                columnId={column.id}
+                columnIsDone={column.isDone}
+                hidden={!matchesSearch(card.title, card.description)}
+              />
+            ))}
+          </AnimatePresence>
         </SortableContext>
       </div>
 

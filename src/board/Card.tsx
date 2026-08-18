@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { motion } from "framer-motion";
 import type { Card, Priority } from "../types";
 import { CardModal } from "./CardModal";
 
@@ -99,14 +100,21 @@ export function CardView({
 
   return (
     <>
-      <div
-        ref={setNodeRef}
-        style={style}
-        {...attributes}
-        {...listeners}
-        onClick={() => setOpen(true)}
-        className={`bg-white dark:bg-gray-900 rounded-md shadow-sm border border-gray-100 dark:border-gray-800 border-l-4 ${PRIORITY_BORDER[card.priority]} p-3 cursor-pointer hover:shadow-md dark:hover:shadow-black/30 transition-shadow space-y-2`}
+      <motion.div
+        layout="position"
+        initial={{ opacity: 0, y: -8, scale: 0.96 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.9, height: 0, marginBottom: 0 }}
+        transition={{ duration: 0.18, ease: "easeOut" }}
       >
+        <div
+          ref={setNodeRef}
+          style={style}
+          {...attributes}
+          {...listeners}
+          onClick={() => setOpen(true)}
+          className={`bg-white dark:bg-gray-900 rounded-md shadow-sm border border-gray-100 dark:border-gray-800 border-l-4 ${PRIORITY_BORDER[card.priority]} p-3 cursor-pointer hover:shadow-md dark:hover:shadow-black/30 transition-shadow space-y-2`}
+        >
         <div className="text-sm font-medium text-gray-800 dark:text-gray-100">{card.title}</div>
 
         {card.labels.length > 0 && (
@@ -163,7 +171,8 @@ export function CardView({
             </span>
           )}
         </div>
-      </div>
+        </div>
+      </motion.div>
 
       {open && (
         <CardModal card={card} columnId={columnId} onClose={() => setOpen(false)} />

@@ -142,62 +142,64 @@ export function ColumnView({ column, searchQuery = "" }: { column: Column; searc
         </div>
       )}
 
-      <div ref={setNodeRef} className="flex-1 overflow-y-auto px-3 space-y-2">
-        <SortableContext
-          items={column.cards.map((c) => c.id)}
-          strategy={verticalListSortingStrategy}
-        >
-          <AnimatePresence initial={false}>
-            {column.cards.map((card) => (
-              <CardView
-                key={card.id}
-                card={card}
-                columnId={column.id}
-                columnIsDone={column.isDone}
-                hidden={!matchesSearch(card.title, card.description)}
-              />
-            ))}
-          </AnimatePresence>
-        </SortableContext>
-      </div>
-
-      <div className="p-3">
-        {addingCard ? (
-          <div className="space-y-2">
-            <input
-              autoFocus
-              className="w-full text-sm rounded px-2 py-1.5 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
-              placeholder="Tiêu đề thẻ..."
-              value={newCardTitle}
-              onChange={(e) => setNewCardTitle(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleAddCard()}
-            />
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={handleAddCard}
-                className="px-2 py-1 text-xs rounded bg-blue-500 text-white"
-              >
-                Thêm
-              </button>
-              <button
-                type="button"
-                onClick={() => setAddingCard(false)}
-                className="px-2 py-1 text-xs rounded border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300"
-              >
-                Hủy
-              </button>
-            </div>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setAddingCard(true)}
-            className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+      <div className="flex-1 overflow-y-auto flex flex-col">
+        <div ref={setNodeRef} className="px-3 space-y-2">
+          <SortableContext
+            items={column.cards.map((c) => c.id)}
+            strategy={verticalListSortingStrategy}
           >
-            + Thêm thẻ
-          </button>
-        )}
+            <AnimatePresence initial={false}>
+              {column.cards.map((card) => (
+                <CardView
+                  key={card.id}
+                  card={card}
+                  columnId={column.id}
+                  columnIsDone={column.isDone}
+                  hidden={!matchesSearch(card.title, card.description)}
+                />
+              ))}
+            </AnimatePresence>
+          </SortableContext>
+        </div>
+
+        <div className="px-3 pt-2 pb-3">
+          {addingCard ? (
+            <div className="space-y-2">
+              <input
+                autoFocus
+                className="w-full text-sm rounded px-2 py-1.5 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
+                placeholder="Tiêu đề thẻ..."
+                value={newCardTitle}
+                onChange={(e) => setNewCardTitle(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleAddCard()}
+              />
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={handleAddCard}
+                  className="px-2 py-1 text-xs rounded bg-blue-500 text-white"
+                >
+                  Thêm
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAddingCard(false)}
+                  className="px-2 py-1 text-xs rounded border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300"
+                >
+                  Hủy
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setAddingCard(true)}
+              className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+            >
+              + Thêm thẻ
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

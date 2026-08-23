@@ -10,7 +10,8 @@ export type BoardListAction =
   | { type: "addBoard"; title: string }
   | { type: "renameBoard"; boardId: string; title: string }
   | { type: "removeBoard"; boardId: string }
-  | { type: "switchBoard"; boardId: string };
+  | { type: "switchBoard"; boardId: string }
+  | { type: "hydrate"; boards: Board[]; activeBoardId: string };
 
 export type AppAction = BoardAction | BoardListAction;
 
@@ -19,6 +20,7 @@ const BOARD_LIST_ACTION_TYPES = new Set<BoardListAction["type"]>([
   "renameBoard",
   "removeBoard",
   "switchBoard",
+  "hydrate",
 ]);
 
 function isBoardListAction(action: AppAction): action is BoardListAction {
@@ -82,6 +84,10 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       case "switchBoard": {
         if (!state.boards.some((b) => b.id === action.boardId)) return state;
         return { ...state, activeBoardId: action.boardId };
+      }
+
+      case "hydrate": {
+        return { boards: action.boards, activeBoardId: action.activeBoardId };
       }
 
       default:

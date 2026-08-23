@@ -86,4 +86,16 @@ describe("appReducer", () => {
     expect(activeBoard.columns[0].cards).toHaveLength(1);
     expect(otherBoard.columns[0].cards).toHaveLength(0);
   });
+
+  it("hydrate replaces boards and activeBoardId wholesale", () => {
+    const state = createDefaultAppState();
+    const remoteBoards = [createDefaultBoard("From Supabase")];
+    const next = appReducer(state, {
+      type: "hydrate",
+      boards: remoteBoards,
+      activeBoardId: remoteBoards[0].id,
+    });
+    expect(next.boards).toEqual(remoteBoards);
+    expect(next.activeBoardId).toBe(remoteBoards[0].id);
+  });
 });

@@ -8,3 +8,12 @@ if (!supabaseUrl || !supabaseAnonKey) {
 }
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+if (typeof window !== "undefined") {
+  (window as unknown as { __supabaseDebug: unknown }).__supabaseDebug = {
+    supabase,
+    createClient,
+    supabaseUrl,
+    supabaseAnonKey,
+  };
+}

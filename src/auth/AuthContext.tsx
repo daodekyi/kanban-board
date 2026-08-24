@@ -16,10 +16,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
+    console.log("[auth-debug] mount, href:", window.location.href);
+    console.log("[auth-debug] subscribing to onAuthStateChange");
+
+    const { data: listener } = supabase.auth.onAuthStateChange((event, newSession) => {
+      console.log("[auth-debug] onAuthStateChange fired", event, newSession);
       setSession(newSession);
       setLoading(false);
     });
+
+    supabase.auth
+      .getSession()
+      .then((result) => {
+        console.log("[auth-debug] getSession resolved", result);
+      })
+      .catch((err) => {
+        console.error("[auth-debug] getSession rejected", err);
+      });
 
     return () => listener.subscription.unsubscribe();
   }, []);

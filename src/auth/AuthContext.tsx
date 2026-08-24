@@ -16,7 +16,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    console.log("[auth-debug] mount, href:", window.location.href);
+    console.log("[auth-debug] mount, full hash:", JSON.stringify(window.location.hash));
+    const hashParams: Record<string, string> = {};
+    new URLSearchParams(window.location.hash.substring(1)).forEach((v, k) => {
+      hashParams[k] = k === "access_token" || k === "refresh_token" || k === "provider_token" ? `${v.length} chars` : v;
+    });
+    console.log("[auth-debug] parsed hash params:", JSON.stringify(hashParams));
     console.log("[auth-debug] subscribing to onAuthStateChange");
 
     const { data: listener } = supabase.auth.onAuthStateChange((event, newSession) => {

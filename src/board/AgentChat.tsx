@@ -24,6 +24,14 @@ export function AgentChat() {
   const [loading, setLoading] = useState(false);
   const [pendingDeletions, setPendingDeletions] = useState<AppAction[]>([]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // New messages and the confirmation panel are appended at the bottom, so
+  // without this they land below the fold and look like nothing happened.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages, pendingDeletions, loading, open]);
 
   // Grow the box with the text, up to a few lines, then let it scroll — the
   // panel is short, so an unbounded box would swallow the conversation.
@@ -89,8 +97,22 @@ export function AgentChat() {
       if (data.error) throw new Error(data.error);
 
       const { actions, dropped } = sanitizeAgentActions(data.actions ?? [], board, boards);
-      const deletions = actions.filter(isDestructiveAction);
-      const applied = actions.filter((a) => !isDestructiveAction(a));
+
+      // Deletions wait for confirmation, everything else runs now — except a
+      // board switch sitting right before a deletion, which exists only to
+      // reach that target. Running it early would yank the user to another
+      // board before they've agreed to anything.
+      const applied: AppAction[] = [];
+      const deletions: AppAction[] = [];
+      for (const action of actions) {
+        if (isDestructiveAction(action)) {
+          const prev = applied[applied.length - 1];
+          if (prev?.type === "switchBoard") deletions.push(applied.pop()!);
+          deletions.push(action);
+        } else {
+          applied.push(action);
+        }
+      }
       applied.forEach((action) => dispatch(action));
 
       // When the turn is nothing but deletions, the agent's reply only restates
@@ -109,6 +131,7 @@ export function AgentChat() {
               {
                 role: "system" as const,
                 text: `Đang chờ bạn bấm nút xác nhận để xóa ${deletions
+                  .filter(isDestructiveAction)
                   .map((a) => describeDestructiveAction(a, board, boards).replace(/^Xóa /, ""))
                   .join(", ")}.`,
               },
@@ -186,11 +209,11 @@ export function AgentChat() {
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+          <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-3 space-y-2">
             {messages.map((m, i) => (
               <div
                 key={i}
-                className={`text-sm rounded-lg px-3 py-2 max-w-[85%] ${
+                className={`text-sm rounded-lg px-3 py-2 max-w-[85%] break-words ${
                   m.role === "user"
                     ? "bg-orange-400 text-white ml-auto"
                     : m.role === "error"
@@ -213,7 +236,7 @@ export function AgentChat() {
                   Xác nhận xóa
                 </div>
                 <ul className="text-sm text-red-700 dark:text-red-300 list-disc pl-4 space-y-0.5">
-                  {pendingDeletions.map((action, i) => (
+                  {pendingDeletions.filter(isDestructiveAction).map((action, i) => (
                     <li key={i}>{describeDestructiveAction(action, board, boards)}</li>
                   ))}
                 </ul>

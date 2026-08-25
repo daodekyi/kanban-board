@@ -145,7 +145,7 @@ export function AgentChat() {
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className={`fixed bottom-5 right-5 w-14 h-14 rounded-full bg-orange-500 hover:bg-orange-600 text-white text-2xl shadow-lg flex items-center justify-center z-40 transition-colors ${
+        className={`fixed bottom-5 right-5 w-14 h-14 rounded-full bg-orange-400 hover:bg-orange-500 text-white text-2xl shadow-lg flex items-center justify-center z-40 transition-colors ${
           open ? "" : "animate-pulse-halo"
         }`}
         title="Trợ lý Kanban"
@@ -172,7 +172,7 @@ export function AgentChat() {
                 key={i}
                 className={`text-sm rounded-lg px-3 py-2 max-w-[85%] ${
                   m.role === "user"
-                    ? "bg-orange-500 text-white ml-auto"
+                    ? "bg-orange-400 text-white ml-auto"
                     : m.role === "error"
                       ? "bg-red-50 dark:bg-red-950 text-red-600 dark:text-red-400"
                       : m.role === "system"
@@ -245,7 +245,7 @@ export function AgentChat() {
               type="button"
               onClick={handleSend}
               disabled={loading || pendingDeletions.length > 0}
-              className="px-3 py-1.5 text-sm rounded-md bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-50 shrink-0"
+              className="px-3 py-1.5 text-sm rounded-md bg-orange-400 text-white hover:bg-orange-500 disabled:opacity-50 shrink-0"
             >
               Gửi
             </button>

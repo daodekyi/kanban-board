@@ -5,12 +5,7 @@ import { AnimatePresence } from "framer-motion";
 import type { Column } from "../types";
 import { CardView } from "./Card";
 import { useBoard } from "./BoardContext";
-
-function splitLeadingNumber(title: string): { number: string | null; rest: string } {
-  const match = title.match(/^(\d+)\.\s*(.*)$/);
-  if (!match) return { number: null, rest: title };
-  return { number: match[1], rest: match[2] };
-}
+import { splitLeadingNumber } from "./columnTitle";
 
 export function ColumnView({
   column,

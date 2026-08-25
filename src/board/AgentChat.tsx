@@ -31,7 +31,11 @@ export function AgentChat() {
     const el = inputRef.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+    const needed = el.scrollHeight;
+    el.style.height = `${Math.min(needed, 120)}px`;
+    // Only let it scroll once it has actually hit the cap — otherwise the
+    // browser draws scrollbar arrows over a box that fits its content.
+    el.style.overflowY = needed > 120 ? "auto" : "hidden";
   }, [prompt, open]);
 
   const handleSend = async () => {
@@ -230,7 +234,7 @@ export function AgentChat() {
             <textarea
               ref={inputRef}
               rows={1}
-              className="flex-1 text-sm rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 px-2.5 py-1.5 focus:outline-none focus:border-orange-400 resize-none overflow-y-auto leading-5"
+              className="flex-1 text-sm rounded-lg border border-orange-400 dark:border-orange-500/70 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 px-2.5 py-1.5 focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100 dark:focus:ring-orange-900/40 disabled:border-gray-200 dark:disabled:border-gray-700 resize-none leading-5"
               placeholder={
                 pendingDeletions.length > 0
                   ? "Bấm Xóa hoặc Hủy ở trên để tiếp tục..."

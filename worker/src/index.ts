@@ -13,19 +13,24 @@ const SubtaskSchema = z.object({
   isDone: z.boolean(),
 });
 
-// OpenAI Structured Outputs requires every optional field to also be
-// nullable (a bare `.optional()` is rejected at the JSON Schema level), so
-// every "not set" field below is modeled as `.nullable()` and the frontend
-// normalizes `null` back to `undefined` before touching app state.
-const CardPatchSchema = z.object({
-  title: z.string().nullable(),
-  description: z.string().nullable(),
-  labels: z.array(z.string()).nullable(),
-  dueDate: z.string().nullable(),
-  priority: z.enum(["low", "medium", "high"]).nullable(),
-  assignee: z.string().nullable(),
-  subtasks: z.array(SubtaskSchema).nullable(),
-});
+// A patch is a LIST of {field, value} entries rather than one big object
+// with every property nullable. This is deliberate: an object where every
+// field must always be present (even if only to hold null) gives a small,
+// fast model too much surface to get wrong — in testing, gpt-5.6-luna
+// occasionally filled an "unchanged" field with a placeholder like "."
+// instead of null, silently overwriting real data (e.g. wiping a card's
+// title/dueDate when the user only asked to change its priority). A list
+// has no such trap: the model simply omits an entry for anything it isn't
+// changing, so there's no "unset" value to get wrong in the first place.
+const PatchFieldSchema = z.discriminatedUnion("field", [
+  z.object({ field: z.literal("title"), value: z.string() }),
+  z.object({ field: z.literal("description"), value: z.string() }),
+  z.object({ field: z.literal("labels"), value: z.array(z.string()) }),
+  z.object({ field: z.literal("dueDate"), value: z.string() }),
+  z.object({ field: z.literal("priority"), value: z.enum(["low", "medium", "high"]) }),
+  z.object({ field: z.literal("assignee"), value: z.string() }),
+  z.object({ field: z.literal("subtasks"), value: z.array(SubtaskSchema) }),
+]);
 
 const ActionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("addColumn"), title: z.string() }),
@@ -35,13 +40,13 @@ const ActionSchema = z.discriminatedUnion("type", [
     type: z.literal("addCard"),
     columnId: z.string(),
     title: z.string(),
-    patch: CardPatchSchema.nullable(),
+    patch: z.array(PatchFieldSchema),
   }),
   z.object({
     type: z.literal("updateCard"),
     columnId: z.string(),
     cardId: z.string(),
-    patch: CardPatchSchema,
+    patch: z.array(PatchFieldSchema),
   }),
   z.object({ type: z.literal("removeCard"), columnId: z.string(), cardId: z.string() }),
   z.object({
@@ -52,7 +57,8 @@ const ActionSchema = z.discriminatedUnion("type", [
     toIndex: z.number(),
   }),
   z.object({ type: z.literal("setColumnDone"), columnId: z.string(), isDone: z.boolean() }),
-  z.object({ type: z.literal("setWipLimit"), columnId: z.string(), wipLimit: z.number().nullable() }),
+  z.object({ type: z.literal("setWipLimit"), columnId: z.string(), wipLimit: z.number() }),
+  z.object({ type: z.literal("clearWipLimit"), columnId: z.string() }),
   z.object({ type: z.literal("addBoard"), title: z.string() }),
   z.object({ type: z.literal("renameBoard"), boardId: z.string(), title: z.string() }),
   z.object({ type: z.literal("removeBoard"), boardId: z.string() }),
@@ -95,11 +101,13 @@ Trả lời bằng "reply" (tiếng Việt, ngắn gọn) và "actions" (danh s�
 
 Quy tắc bắt buộc:
 - CHỈ dùng id (columnId, cardId, boardId) có thật trong dữ liệu board được cung cấp. Tuyệt đối không bịa id.
-- Khi thêm/sửa/xóa subtask của một card đã có sẵn subtasks, "patch.subtasks" phải là TOÀN BỘ danh sách subtask sau khi thay đổi (giữ nguyên id các subtask cũ không đổi, subtask mới có thể dùng id tạm bất kỳ vì hệ thống sẽ tự cấp lại id thật).
+- "patch" là MẢNG các mục {field, value}, CHỈ liệt kê những field thật sự cần thay đổi. Không cần thay field nào thì để mảng rỗng []. TUYỆT ĐỐI KHÔNG thêm mục cho field mà người dùng không yêu cầu đổi, và không bao giờ dùng giá trị giữ chỗ như "." hay "" — làm vậy sẽ ghi đè mất dữ liệu thật của người dùng.
+- Khi thêm/sửa/xóa subtask của một card đã có sẵn subtasks, value của field "subtasks" phải là TOÀN BỘ danh sách subtask sau khi thay đổi (giữ nguyên id các subtask cũ không đổi, subtask mới có thể dùng id tạm bất kỳ vì hệ thống sẽ tự cấp lại id thật).
+- "dueDate" phải đúng định dạng YYYY-MM-DD (ví dụ 2026-08-30). Nếu không xác định được ngày cụ thể từ yêu cầu, đừng thêm field dueDate vào patch.
 - Nếu yêu cầu chỉ là câu hỏi hoặc cần tóm tắt/phân tích board (không cần thay đổi dữ liệu), trả lời đầy đủ trong "reply" và để "actions" là mảng rỗng.
 - Nếu yêu cầu không đủ rõ ràng (ví dụ không rõ thêm thẻ vào cột nào, giao cho ai), hỏi lại trong "reply" một cách cụ thể và để "actions" rỗng — không được đoán bừa.
-- Không tự ý thực hiện hành động phá hủy dữ liệu lớn (xóa nhiều thẻ/cột/board cùng lúc) trừ khi người dùng nói rõ ràng.
-- "patch" trong "addCard"/"updateCard" và "wipLimit" trong "setWipLimit" là object/field bắt buộc phải có mặt nhưng cho phép giá trị null: nếu không có patch nào, gán "patch" là null; nếu 1 field trong patch không cần đổi, gán field đó là null (không được bỏ qua field).`;
+- Dựa vào lịch sử hội thoại phía trên để hiểu các yêu cầu nối tiếp: khi người dùng nói "task này", "thẻ vừa tạo", "nó"..., hãy hiểu là thẻ/cột được nhắc tới gần nhất trong hội thoại; chỉ hỏi lại khi thật sự không suy ra được.
+- Không tự ý thực hiện hành động phá hủy dữ liệu lớn (xóa nhiều thẻ/cột/board cùng lúc) trừ khi người dùng nói rõ ràng.`;
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -117,7 +125,12 @@ export default {
       return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
-    let body: { prompt?: string; board?: unknown; boards?: unknown };
+    let body: {
+      prompt?: string;
+      board?: unknown;
+      boards?: unknown;
+      history?: { role?: string; text?: string }[];
+    };
     try {
       body = (await request.json()) as typeof body;
     } catch {
@@ -140,10 +153,16 @@ export default {
 
     const contextJson = JSON.stringify({ activeBoard: body.board, boards: body.boards });
 
+    const history = (body.history ?? [])
+      .filter((m) => typeof m.text === "string" && m.text.trim() !== "")
+      .map((m) => `${m.role === "user" ? "Người dùng" : "Trợ lý"}: ${m.text}`)
+      .join("\n");
+    const historyBlock = history ? `Lịch sử hội thoại trước đó:\n${history}\n\n` : "";
+
     try {
       const result = await run(
         agent,
-        `Dữ liệu board hiện tại:\n${contextJson}\n\nYêu cầu người dùng: ${prompt}`
+        `Dữ liệu board hiện tại:\n${contextJson}\n\n${historyBlock}Yêu cầu người dùng: ${prompt}`
       );
       const output = result.finalOutput ?? { reply: "Xin lỗi, tôi chưa xử lý được yêu cầu này.", actions: [] };
       return jsonResponse(output);

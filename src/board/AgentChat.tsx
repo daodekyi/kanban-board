@@ -41,13 +41,21 @@ export function AgentChat() {
       const token = sessionData.session?.access_token;
       if (!token) throw new Error("Chưa đăng nhập");
 
+      // Error bubbles are local UI state, not part of the conversation the
+      // agent should reason about; the tail is enough for follow-ups like
+      // "đổi ưu tiên task đó" without resending the whole transcript.
+      const history = messages
+        .filter((m) => m.role !== "error")
+        .slice(-10)
+        .map((m) => ({ role: m.role, text: m.text }));
+
       const res = await fetch(WORKER_URL, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ prompt: text, board, boards }),
+        body: JSON.stringify({ prompt: text, board, boards, history }),
       });
 
       if (!res.ok) {

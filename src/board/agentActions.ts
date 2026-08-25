@@ -1,30 +1,40 @@
 import { v4 as uuidv4 } from "uuid";
 import type { AppAction } from "./appReducer";
-import type { Board, Subtask } from "../types";
+import type { Board, Card, Priority, Subtask } from "../types";
 
-/**
- * The Worker's structured-output schema requires every "unset" patch field to
- * be an explicit `null` (OpenAI Structured Outputs rejects bare `.optional()`
- * fields). Drop those nulls entirely rather than spreading them — reducers
- * merge patches with `{...card, ...patch}`, and an explicit `undefined` value
- * would still clobber the existing field instead of leaving it alone.
- */
-function stripUnset<T extends object>(obj: T): Partial<T> {
-  const result: Partial<T> = {};
-  for (const [key, value] of Object.entries(obj)) {
-    if (value !== null && value !== undefined) {
-      (result as Record<string, unknown>)[key] = value;
-    }
-  }
-  return result;
+type CardPatch = Partial<Omit<Card, "id">>;
+
+/** One {field, value} entry as produced by the Worker's patch schema. */
+interface PatchEntry {
+  field: string;
+  value: unknown;
 }
 
-function normalizeSubtasks(subtasks: unknown, existing: Subtask[] = []): Subtask[] | undefined {
-  if (!Array.isArray(subtasks)) return undefined;
+/** Agent action shapes before validation — patches arrive as arrays, not objects. */
+type RawAgentAction = Omit<Extract<AppAction, { type: "addCard" | "updateCard" }>, "patch"> & {
+  patch?: unknown;
+};
+
+const PRIORITIES: Priority[] = ["low", "medium", "high"];
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * A model asked to leave a field alone sometimes emits a filler string instead
+ * of omitting the entry — "." wiped real card titles in production. Treat text
+ * with no letters or digits as "the model had nothing to say here".
+ */
+function isPlaceholderText(value: string): boolean {
+  return !/[\p{L}\p{N}]/u.test(value);
+}
+
+function normalizeSubtasks(value: unknown, existing: Subtask[] = []): Subtask[] {
+  if (!Array.isArray(value)) return [];
   const existingIds = new Set(existing.map((s) => s.id));
-  return subtasks
+  return value
     .filter((s): s is Record<string, unknown> => !!s && typeof s === "object")
     .map((s) => ({
+      // Only honor an id the card already has; anything else the model invented
+      // gets a real UUID so agent-authored subtasks can't collide or dangle.
       id: typeof s.id === "string" && existingIds.has(s.id) ? s.id : uuidv4(),
       title: typeof s.title === "string" ? s.title.trim() : "",
       isDone: !!s.isDone,
@@ -33,13 +43,66 @@ function normalizeSubtasks(subtasks: unknown, existing: Subtask[] = []): Subtask
 }
 
 /**
+ * Convert the Worker's [{field, value}] patch list into a Card patch object,
+ * dropping any entry whose value doesn't match what the field actually holds.
+ * The list shape means an unchanged field is simply absent, so there's no
+ * "unset" sentinel that could overwrite real data.
+ */
+function buildPatch(rawPatch: unknown, existingSubtasks: Subtask[] = []): CardPatch {
+  if (!Array.isArray(rawPatch)) return {};
+  const patch: CardPatch = {};
+
+  for (const entry of rawPatch as PatchEntry[]) {
+    if (!entry || typeof entry !== "object") continue;
+    const { field, value } = entry;
+
+    switch (field) {
+      case "title":
+      case "description":
+      case "assignee": {
+        if (typeof value !== "string") break;
+        const trimmed = value.trim();
+        if (trimmed === "" || isPlaceholderText(trimmed)) break;
+        patch[field] = trimmed;
+        break;
+      }
+      case "dueDate": {
+        if (typeof value === "string" && DATE_PATTERN.test(value)) patch.dueDate = value;
+        break;
+      }
+      case "priority": {
+        if (PRIORITIES.includes(value as Priority)) patch.priority = value as Priority;
+        break;
+      }
+      case "labels": {
+        if (Array.isArray(value) && value.every((l) => typeof l === "string")) {
+          patch.labels = value as string[];
+        }
+        break;
+      }
+      case "subtasks": {
+        patch.subtasks = normalizeSubtasks(value, existingSubtasks);
+        break;
+      }
+    }
+  }
+
+  return patch;
+}
+
+/**
  * Actions returned by the agent reference ids from a JSON snapshot the model
  * cannot be fully trusted to get right. Drop or repair anything that doesn't
  * match the board's actual current state before it ever reaches dispatch.
  */
-export function sanitizeAgentAction(action: AppAction, board: Board, boards: Board[]): AppAction | null {
+export function sanitizeAgentAction(
+  action: AppAction,
+  board: Board,
+  boards: Board[]
+): AppAction | null {
   const findColumn = (id: string) => board.columns.find((c) => c.id === id);
-  const findCard = (columnId: string, cardId: string) => findColumn(columnId)?.cards.find((c) => c.id === cardId);
+  const findCard = (columnId: string, cardId: string) =>
+    findColumn(columnId)?.cards.find((c) => c.id === cardId);
 
   switch (action.type) {
     case "addColumn":
@@ -51,25 +114,21 @@ export function sanitizeAgentAction(action: AppAction, board: Board, boards: Boa
       return findColumn(action.columnId) ? action : null;
 
     case "setWipLimit":
-      return findColumn(action.columnId)
-        ? { ...action, wipLimit: action.wipLimit ?? undefined }
-        : null;
+      return findColumn(action.columnId) ? action : null;
 
     case "addCard": {
       if (!findColumn(action.columnId) || !action.title?.trim()) return null;
-      if (!action.patch) return { ...action, patch: undefined };
-      const patch = stripUnset(action.patch);
-      if (patch.subtasks !== undefined) patch.subtasks = normalizeSubtasks(patch.subtasks);
+      const patch = buildPatch((action as RawAgentAction).patch);
       return { ...action, patch };
     }
 
     case "updateCard": {
       const card = findCard(action.columnId, action.cardId);
       if (!card) return null;
-      const patch = stripUnset(action.patch ?? {});
-      if (patch.subtasks !== undefined) {
-        patch.subtasks = normalizeSubtasks(patch.subtasks, card.subtasks);
-      }
+      const patch = buildPatch((action as RawAgentAction).patch, card.subtasks);
+      // An update that survived validation with nothing left to change would
+      // dispatch a no-op and make the sync look like it did something.
+      if (Object.keys(patch).length === 0) return null;
       return { ...action, patch };
     }
 
@@ -99,7 +158,21 @@ export function sanitizeAgentAction(action: AppAction, board: Board, boards: Boa
 }
 
 export function sanitizeAgentActions(actions: AppAction[], board: Board, boards: Board[]): AppAction[] {
-  return actions
-    .map((a) => sanitizeAgentAction(a, board, boards))
-    .filter((a): a is AppAction => a !== null);
+  const result: AppAction[] = [];
+  for (const raw of actions) {
+    // clearWipLimit exists only in the agent's vocabulary — the reducer clears
+    // a limit by setting it to undefined, which the agent schema can't express.
+    const action =
+      (raw as { type: string }).type === "clearWipLimit"
+        ? ({
+            type: "setWipLimit",
+            columnId: (raw as unknown as { columnId: string }).columnId,
+            wipLimit: undefined,
+          } as AppAction)
+        : raw;
+
+    const sanitized = sanitizeAgentAction(action, board, boards);
+    if (sanitized) result.push(sanitized);
+  }
+  return result;
 }

@@ -14,6 +14,24 @@ npx vitest        # chạy test ở chế độ watch
 
 Không có lệnh `npm test` riêng — dùng `npx vitest run`.
 
+Với Cloudflare Worker của trợ lý AI (chạy trong thư mục `worker/`):
+
+```bash
+npx wrangler deploy                  # deploy Worker (frontend deploy riêng, xem mục Deploy)
+npx wrangler tail --format pretty    # xem log Worker realtime — cách nhanh nhất để biết agent lỗi gì
+npx wrangler secret put <NAME>       # set secret (OPENAI_API_KEY, SUPABASE_ANON_KEY)
+npx tsc --noEmit                     # type-check Worker (không nằm trong `npm run build` của frontend)
+```
+
+Khi debug lỗi 500 từ trợ lý, `wrangler tail` cho thấy thông báo lỗi thật (vd schema Zod không hợp lệ) — nhanh hơn nhiều so với đoán từ phía frontend.
+
+Kiểm tra frontend đã deploy xong chưa: so tên file bundle giữa local và production.
+
+```bash
+npm run build && ls dist/assets/*.js
+curl -s https://kanban-board-amc.pages.dev/ | grep -o 'index-[A-Za-z0-9_-]*\.js'
+```
+
 ## Kiến trúc
 
 - `src/board/` — logic board chính
@@ -22,7 +40,10 @@ Không có lệnh `npm test` riêng — dùng `npx vitest run`.
   - `BoardContext.tsx` — React context bọc reducer + persistence
   - `Board.tsx`, `Column.tsx`, `Card.tsx`, `CardModal.tsx` — UI, dnd-kit cho kéo thả
   - `BoardSwitcher.tsx` — chuyển đổi giữa nhiều board
+  - `AgentChat.tsx` — panel chat trợ lý AI (nút 🤖 góc dưới phải), gồm luồng xác nhận trước khi xóa
+  - `agentActions.ts` — validate/chuẩn hóa action do agent đề xuất trước khi dispatch, có test (`agentActions.test.ts`)
   - `avatar.ts` — sinh màu (1 màu trung tính, cố định) + initials cho avatar assignee từ tên tự do
+  - `columnTitle.ts` — tách số thứ tự ở đầu tiêu đề cột để hiện badge, có test riêng
   - `useLocalStorage.ts` — hook persistence (localStorage), có test riêng
 - `src/auth/` — `AuthContext.tsx` (quản lý session Supabase), `LoginScreen.tsx` (màn hình đăng nhập Google OAuth)
 - `src/lib/supabaseClient.ts` — khởi tạo Supabase client, đọc từ `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`
@@ -105,6 +126,7 @@ Ghi chú: đây là tóm tắt dựa trên lịch sử commit thật (`git log`)
 9. **OAuth: luôn hiện bảng chọn tài khoản Google** — thêm `prompt: select_account` vào request OAuth để không tự động đăng nhập bằng session Google có sẵn trong trình duyệt (commit `019b92b`). Đây là thay đổi nhỏ, không đụng tới logic `onAuthStateChange` đã fix ở mục 6.
 10. **Trợ lý AI thao tác board bằng ngôn ngữ tự nhiên** — thêm Cloudflare Worker riêng (`worker/`, OpenAI Agents SDK, model `gpt-5.6-luna`) dịch prompt tiếng Việt thành các `AppAction` có sẵn, frontend validate rồi dispatch qua reducer hiện có (không tạo đường ghi dữ liệu song song vào Supabase). Đây là backend đầu tiên của app ngoài Supabase — xem chi tiết ở mục [Trợ lý AI (Agent)](#trợ-lý-ai-agent).
 11. **Gia cố agent sau các sự cố thật khi dùng** — đổi `patch` sang dạng mảng `{field, value}` vì model điền giá trị giữ chỗ làm mất dữ liệu thẻ và chặn sync Supabase (`5c2790d`); bắt buộc xác nhận trước mọi thao tác xóa (`67400f4`, `4e61170`); cho phép thao tác trên board không active và báo cáo action bị loại bỏ (`222c5cb`); chat tự cuộn + giữ `switchBoard` lại tới khi xác nhận (`0996454`). Các quyết định này đều xuất phát từ bug thật, đọc mục [Trợ lý AI (Agent)](#trợ-lý-ai-agent) trước khi đổi lại.
+12. **Polish giao diện chat + vá lỗ hổng xác nhận xóa** — chat đổi sang tông cam của header, nút 🤖 to hơn kèm hiệu ứng vòng sáng (`animate-pulse-halo`, khác kiểu nhấp nháy đỏ của thẻ quá hạn), ô nhập co giãn theo nội dung có viền cam (`41729ae`, `4550d0d`, `a178ba7`); badge số cột nhận cả dạng "5 Test" không dấu chấm (`3ed0715`); xóa cột rỗng bằng tay giờ cũng hỏi xác nhận như xóa thẻ (`09f330b`).
 
 Khi cần biết chi tiết hơn một giai đoạn, dùng `git log --oneline` hoặc `git show <hash>` — hash commit ở trên là mốc tra cứu chính xác hơn là hỏi lại người dùng.
 
@@ -112,4 +134,13 @@ Khi cần biết chi tiết hơn một giai đoạn, dùng `git log --oneline` h
 
 - Sau khi sửa logic reducer (`boardReducer.ts`, `appReducer.ts`) hoặc `useLocalStorage.ts`, chạy `npx vitest run` để xác nhận không vỡ test.
 - Không thêm debug logging hoặc expose object lên `window` rồi quên xóa — lịch sử gần đây có vài commit riêng chỉ để dọn debug logging OAuth (`5b6f87c` → `ff21306`), tránh lặp lại.
-- Không commit `.env` hoặc bất kỳ khóa Supabase nào.
+- Không commit `.env` hoặc bất kỳ khóa Supabase nào. Ghi chú chứa khóa để cạnh project (vd `Secret Keys.docx`) đã được `.gitignore` chặn sẵn — nhưng OpenAI API key và service_role key **không bao giờ** được đưa vào `.env` của frontend, vì Vite nhúng mọi biến `VITE_*` vào bundle chạy trên trình duyệt. Chúng chỉ thuộc về `wrangler secret`.
+- **Mọi thao tác xóa đều phải hỏi trước** — xóa thẻ, xóa cột (kể cả cột rỗng), xóa board, và cả khi trợ lý AI đề xuất xóa. Thao tác tay dùng `window.confirm`; trợ lý AI dùng khung xác nhận trong `AgentChat.tsx`. Nếu thêm đường xóa mới, giữ đúng quy ước này.
+- App là **client-authoritative**: reducer đổi state local trước, `BoardContext.tsx` sync lên Supabase sau. Khi sync lỗi, UI **vẫn hiện như đã thành công** — một thẻ dữ liệu hỏng có thể làm cả batch upsert bị Postgres từ chối, khiến mọi thay đổi tiếp theo im lặng không lưu được. Khi nghi ngờ, mở Console tìm `Failed to sync ... to Supabase` và kiểm tra lại bằng cách F5.
+- Frontend và Worker deploy **độc lập**: sửa `worker/` thì phải `npx wrangler deploy`, push git không tự deploy Worker. Ngược lại sửa `src/` thì push git là đủ. Quên bước này dẫn tới frontend mới chạy với Worker cũ (hoặc ngược lại) — đã gây vài lần debug nhầm hướng.
+
+## Trạng thái hiện tại
+
+Đã chạy production và được người dùng kiểm thử: board/cột/thẻ, kéo thả, subtask, assignee + filter, dark mode, đa board, đăng nhập Google, và trợ lý AI (tạo/sửa/xóa/di chuyển thẻ, cột, board bằng tiếng Việt, có xác nhận trước khi xóa, làm việc được cả với board không đang mở).
+
+Ý tưởng đã bàn nhưng **chưa làm**: bình luận & nhật ký hoạt động trên thẻ, đính kèm file (Supabase Storage), sắp xếp nâng cao trong cột. Multi-user thật (nhiều tài khoản chung 1 board) là thay đổi kiến trúc lớn — xem ghi chú ở mục [Assignee](#assignee--lưu-ý-quan-trọng).

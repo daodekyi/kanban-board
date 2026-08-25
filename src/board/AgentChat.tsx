@@ -9,7 +9,8 @@ import {
 import type { AppAction } from "./appReducer";
 
 interface ChatMessage {
-  role: "user" | "agent" | "error";
+  /** "system" is the app speaking for itself, not the agent — used for prompts the agent must not be mistaken for. */
+  role: "user" | "agent" | "system" | "error";
   text: string;
 }
 
@@ -35,7 +36,10 @@ export function AgentChat() {
 
   const handleSend = async () => {
     const text = prompt.trim();
-    if (!text || loading) return;
+    // A pending deletion must be resolved by the buttons; letting a message
+    // through here is how a typed "yes" turned into a fresh request that
+    // then couldn't find the already-deleted card.
+    if (!text || loading || pendingDeletions.length > 0) return;
 
     if (!WORKER_URL) {
       setMessages((prev) => [
@@ -87,6 +91,19 @@ export function AgentChat() {
       setMessages((prev) => [
         ...prev,
         { role: "agent", text: data.reply || "Đã thực hiện." },
+        // The agent tends to phrase a deletion as a question ("...nhé?"), which
+        // reads like it wants a typed reply. Say plainly, in the app's own
+        // voice, that only the button below does anything.
+        ...(deletions.length > 0
+          ? [
+              {
+                role: "system" as const,
+                text: `Đang chờ bạn bấm nút xác nhận để xóa ${deletions
+                  .map((a) => describeDestructiveAction(a, board, boards).replace(/^Xóa /, ""))
+                  .join(", ")}.`,
+              },
+            ]
+          : []),
       ]);
       if (deletions.length > 0) setPendingDeletions(deletions);
     } catch (err) {
@@ -158,7 +175,9 @@ export function AgentChat() {
                     ? "bg-orange-500 text-white ml-auto"
                     : m.role === "error"
                       ? "bg-red-50 dark:bg-red-950 text-red-600 dark:text-red-400"
-                      : "bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-100"
+                      : m.role === "system"
+                        ? "bg-transparent text-gray-500 dark:text-gray-400 italic px-0 max-w-full"
+                        : "bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-100"
                 }`}
               >
                 {m.text}
@@ -206,7 +225,11 @@ export function AgentChat() {
               ref={inputRef}
               rows={1}
               className="flex-1 text-sm rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 px-2.5 py-1.5 focus:outline-none focus:border-orange-400 resize-none overflow-y-auto leading-5"
-              placeholder="Nhập yêu cầu..."
+              placeholder={
+                pendingDeletions.length > 0
+                  ? "Bấm Xóa hoặc Hủy ở trên để tiếp tục..."
+                  : "Nhập yêu cầu..."
+              }
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               onKeyDown={(e) => {
@@ -216,12 +239,12 @@ export function AgentChat() {
                   handleSend();
                 }
               }}
-              disabled={loading}
+              disabled={loading || pendingDeletions.length > 0}
             />
             <button
               type="button"
               onClick={handleSend}
-              disabled={loading}
+              disabled={loading || pendingDeletions.length > 0}
               className="px-3 py-1.5 text-sm rounded-md bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-50 shrink-0"
             >
               Gửi

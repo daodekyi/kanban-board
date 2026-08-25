@@ -53,6 +53,7 @@ Nếu cần thêm loại cảnh báo mới, chọn màu chưa dùng ở trên v�
 - Dữ liệu board hiện lưu qua Supabase (đã migrate từ localStorage-only, xem commit `783d9ea`). `useLocalStorage.ts` vẫn tồn tại nhưng vai trò đang chuyển dần sang Supabase — kiểm tra `BoardContext.tsx` để biết nguồn sự thật hiện tại trước khi giả định.
 - Bảng `tasks` trên Supabase có thêm 2 cột `subtasks` (jsonb, mặc định `[]`) và `assignee` (text, nullable) — thêm bằng migration SQL chạy tay qua Supabase SQL Editor (không phải qua file migration trong repo, vì repo không dùng Supabase CLI/migration files). Nếu cần thêm cột mới cho `tasks` trong tương lai, làm tương tự: viết SQL, hướng dẫn user chạy trong SQL Editor, không có nơi nào trong repo tự động chạy migration.
 - Auth dùng Supabase Google OAuth. Session state lấy **duy nhất** từ `onAuthStateChange` (xem commit `4823ee7` — cố tình không đọc session ban đầu qua cách khác để tránh state không nhất quán). Nếu đụng vào luồng OAuth, đọc kỹ lịch sử debug gần đây (`b317530`..`ff21306`) trước khi sửa.
+- `signInWithGoogle` (`AuthContext.tsx`) truyền `queryParams: { prompt: "select_account" }` cho `signInWithOAuth` — bắt Google luôn hiện bảng chọn tài khoản, kể cả khi trình duyệt đã có sẵn session Google. Trước khi có dòng này, nếu đã đăng nhập Google trong trình duyệt, bấm nút "Đăng nhập với Google" sẽ tự động dùng tài khoản đang active mà không hỏi lại — gây khó khi cần đổi tài khoản hoặc test multi-account (commit `019b92b`).
 - Biến môi trường cần thiết: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (xem `.env.example`). `.env` đã có sẵn cục bộ, không commit.
 
 ## Deploy
@@ -83,6 +84,7 @@ Ghi chú: đây là tóm tắt dựa trên lịch sử commit thật (`git log`)
 6. **Debug OAuth session** — sau migrate, gặp bug session không nhất quán lúc load lại trang; đã thử log debug, expose client lên `window` để chẩn đoán, sau đó fix bằng cách chỉ tin `onAuthStateChange` làm nguồn sự thật duy nhất cho session, rồi dọn sạch code debug (`b317530` → `ff21306`). **Nếu gặp lại bug OAuth session tương tự, đọc lại các commit này trước khi debug từ đầu.**
 7. **Deploy production** — frontend đang chạy tại Cloudflare Pages (https://kanban-board-amc.pages.dev), xem mục [Deploy](#deploy) ở trên.
 8. **Subtask, assignee, redesign UI** — thêm checklist việc con và người phụ trách (text tự do, chưa gắn tài khoản thật) cho mỗi thẻ, filter board theo assignee, redesign lại Column/Board/CardModal, tinh chỉnh lại hệ thống màu cảnh báo (đỏ nhấp nháy = quá hạn, cam/vàng = sắp đến hạn, tím tĩnh = thẻ kẹt lâu) để giảm nhiễu thị giác (commit `89380ab`). Xem chi tiết quy ước màu và lý do chọn ở mục [State model](#kiến-trúc) phía trên.
+9. **OAuth: luôn hiện bảng chọn tài khoản Google** — thêm `prompt: select_account` vào request OAuth để không tự động đăng nhập bằng session Google có sẵn trong trình duyệt (commit `019b92b`). Đây là thay đổi nhỏ, không đụng tới logic `onAuthStateChange` đã fix ở mục 6.
 
 Khi cần biết chi tiết hơn một giai đoạn, dùng `git log --oneline` hoặc `git show <hash>` — hash commit ở trên là mốc tra cứu chính xác hơn là hỏi lại người dùng.
 

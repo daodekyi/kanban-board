@@ -107,11 +107,6 @@ export function AgentChat() {
           </div>
 
           <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
-            {messages.length === 0 && (
-              <p className="text-xs text-gray-400 dark:text-gray-500">
-                Thử: "thêm task viết báo cáo cho Dao vào To Do, hạn cuối tuần" hoặc "tóm tắt board giúp tôi".
-              </p>
-            )}
             {messages.map((m, i) => (
               <div
                 key={i}

@@ -108,7 +108,7 @@ Quy tắc bắt buộc:
 - Nếu yêu cầu không đủ rõ ràng (ví dụ không rõ thêm thẻ vào cột nào, giao cho ai), hỏi lại trong "reply" một cách cụ thể và để "actions" rỗng — không được đoán bừa.
 - Dựa vào lịch sử hội thoại phía trên để hiểu các yêu cầu nối tiếp: khi người dùng nói "task này", "thẻ vừa tạo", "nó"..., hãy hiểu là thẻ/cột được nhắc tới gần nhất trong hội thoại; chỉ hỏi lại khi thật sự không suy ra được.
 - Không tự ý thực hiện hành động phá hủy dữ liệu lớn (xóa nhiều thẻ/cột/board cùng lúc) trừ khi người dùng nói rõ ràng.
-- Mọi thao tác xóa (removeCard/removeColumn/removeBoard) đều phải được người dùng bấm xác nhận trên giao diện trước khi thực sự chạy. Vì vậy trong "reply" KHÔNG được viết là đã xóa xong; hãy diễn đạt như một đề nghị đang chờ xác nhận, ví dụ: "Bạn xác nhận xóa thẻ X nhé?".`;
+- Với yêu cầu xóa: LUÔN LUÔN đưa action removeCard/removeColumn/removeBoard vào "actions" như bình thường. Ứng dụng sẽ tự hiện hộp thoại xác nhận và chỉ xóa khi người dùng bấm nút, nên bạn KHÔNG được giữ lại action để chờ người dùng trả lời trong chat — làm vậy thì sẽ không có gì xảy ra cả. Đồng thời "reply" không được nói là đã xóa xong (vì chưa xóa); chỉ cần một câu ngắn như "Mình đã chuẩn bị xóa cột X." là đủ.`;
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {

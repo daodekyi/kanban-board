@@ -90,10 +90,37 @@ function buildPatch(rawPatch: unknown, existingSubtasks: Subtask[] = []): CardPa
   return patch;
 }
 
+/** The board a column-scoped action targets, which needn't be the active one. */
+function boardOwningColumn(columnId: string, boards: Board[]): Board | undefined {
+  return boards.find((b) => b.columns.some((c) => c.id === columnId));
+}
+
+/** The board an action applies to, or undefined for ones that target whatever board is open. */
+export function targetBoardOf(action: AppAction, boards: Board[]): Board | undefined {
+  switch (action.type) {
+    case "removeColumn":
+    case "renameColumn":
+    case "setColumnDone":
+    case "setWipLimit":
+    case "addCard":
+    case "updateCard":
+    case "removeCard":
+      return boardOwningColumn(action.columnId, boards);
+    case "moveCard":
+      return boardOwningColumn(action.fromColumnId, boards);
+    default:
+      return undefined;
+  }
+}
+
 /**
  * Actions returned by the agent reference ids from a JSON snapshot the model
  * cannot be fully trusted to get right. Drop or repair anything that doesn't
  * match the board's actual current state before it ever reaches dispatch.
+ *
+ * `board` is the board this action is checked against — for a request naming
+ * another board ("xóa cột In Progress của Project B") that is the board that
+ * owns the column, not the one currently on screen.
  */
 export function sanitizeAgentAction(
   action: AppAction,
@@ -168,19 +195,24 @@ export function isDestructiveAction(action: AppAction): boolean {
 
 /** Human-readable summary of what a deletion would remove, for the confirm prompt. */
 export function describeDestructiveAction(action: AppAction, board: Board, boards: Board[]): string {
+  // A deletion can target a board other than the one on screen, so look the
+  // names up wherever the column actually lives.
+  const owner = targetBoardOf(action, boards) ?? board;
+  const onOther = owner.id !== board.id ? ` (board "${owner.title}")` : "";
+
   switch (action.type) {
     case "removeCard": {
-      const card = board.columns
+      const card = owner.columns
         .find((c) => c.id === action.columnId)
         ?.cards.find((c) => c.id === action.cardId);
-      return `Xóa thẻ "${card?.title ?? "?"}"`;
+      return `Xóa thẻ "${card?.title ?? "?"}"${onOther}`;
     }
     case "removeColumn": {
-      const column = board.columns.find((c) => c.id === action.columnId);
+      const column = owner.columns.find((c) => c.id === action.columnId);
       const count = column?.cards.length ?? 0;
       return count > 0
-        ? `Xóa cột "${column?.title ?? "?"}" cùng ${count} thẻ bên trong`
-        : `Xóa cột "${column?.title ?? "?"}"`;
+        ? `Xóa cột "${column?.title ?? "?"}" cùng ${count} thẻ bên trong${onOther}`
+        : `Xóa cột "${column?.title ?? "?"}"${onOther}`;
     }
     case "removeBoard": {
       const target = boards.find((b) => b.id === action.boardId);
@@ -194,8 +226,24 @@ export function describeDestructiveAction(action: AppAction, board: Board, board
   }
 }
 
-export function sanitizeAgentActions(actions: AppAction[], board: Board, boards: Board[]): AppAction[] {
+export interface SanitizedActions {
+  actions: AppAction[];
+  /** How many the agent proposed that didn't survive validation, so the UI can say so instead of failing silently. */
+  dropped: number;
+}
+
+export function sanitizeAgentActions(
+  actions: AppAction[],
+  board: Board,
+  boards: Board[]
+): SanitizedActions {
   const result: AppAction[] = [];
+  let dropped = 0;
+  // The reducer applies column/card actions to whichever board is active, so
+  // acting on another board means switching to it first. Tracked across the
+  // batch so consecutive actions on the same board only switch once.
+  let activeId = board.id;
+
   for (const raw of actions) {
     // clearWipLimit exists only in the agent's vocabulary — the reducer clears
     // a limit by setting it to undefined, which the agent schema can't express.
@@ -208,8 +256,23 @@ export function sanitizeAgentActions(actions: AppAction[], board: Board, boards:
           } as AppAction)
         : raw;
 
-    const sanitized = sanitizeAgentAction(action, board, boards);
-    if (sanitized) result.push(sanitized);
+    const owner = targetBoardOf(action, boards);
+    const context = owner ?? boards.find((b) => b.id === activeId) ?? board;
+
+    const sanitized = sanitizeAgentAction(action, context, boards);
+    if (!sanitized) {
+      dropped++;
+      continue;
+    }
+
+    if (owner && owner.id !== activeId) {
+      result.push({ type: "switchBoard", boardId: owner.id });
+      activeId = owner.id;
+    }
+    if (sanitized.type === "switchBoard") activeId = sanitized.boardId;
+
+    result.push(sanitized);
   }
-  return result;
+
+  return { actions: result, dropped };
 }

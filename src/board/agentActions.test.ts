@@ -38,7 +38,21 @@ function makeBoard(): Board {
 
 function sanitize(action: unknown) {
   const board = makeBoard();
-  return sanitizeAgentActions([action as AppAction], board, [board]);
+  return sanitizeAgentActions([action as AppAction], board, [board]).actions;
+}
+
+const OTHER_COLUMN_ID = "col-2";
+const OTHER_BOARD_ID = "board-2";
+
+/** A second board the user isn't currently looking at. */
+function makeOtherBoard(): Board {
+  return {
+    id: OTHER_BOARD_ID,
+    title: "Project B",
+    columns: [
+      { id: OTHER_COLUMN_ID, title: "In Progress", order: 0, cards: [] },
+    ],
+  };
 }
 
 describe("sanitizeAgentActions", () => {
@@ -183,6 +197,63 @@ describe("sanitizeAgentActions", () => {
     expect(describeDestructiveAction({ type: "removeBoard", boardId: "board-2" }, empty, [empty])).toBe(
       'Xóa board "Trống"'
     );
+  });
+
+  it("switches to the owning board before acting on another board's column", () => {
+    const active = makeBoard();
+    const other = makeOtherBoard();
+
+    const { actions, dropped } = sanitizeAgentActions(
+      [{ type: "removeColumn", columnId: OTHER_COLUMN_ID }],
+      active,
+      [active, other]
+    );
+
+    expect(dropped).toBe(0);
+    expect(actions).toEqual([
+      { type: "switchBoard", boardId: OTHER_BOARD_ID },
+      { type: "removeColumn", columnId: OTHER_COLUMN_ID },
+    ]);
+  });
+
+  it("does not switch boards for a column on the board already open", () => {
+    const active = makeBoard();
+    const other = makeOtherBoard();
+
+    const { actions } = sanitizeAgentActions([{ type: "removeColumn", columnId: COLUMN_ID }], active, [
+      active,
+      other,
+    ]);
+
+    expect(actions).toEqual([{ type: "removeColumn", columnId: COLUMN_ID }]);
+  });
+
+  it("says which board a cross-board deletion belongs to", () => {
+    const active = makeBoard();
+    const other = makeOtherBoard();
+
+    expect(
+      describeDestructiveAction({ type: "removeColumn", columnId: OTHER_COLUMN_ID }, active, [
+        active,
+        other,
+      ])
+    ).toBe('Xóa cột "In Progress" (board "Project B")');
+  });
+
+  it("reports how many proposed actions were rejected", () => {
+    const active = makeBoard();
+
+    const { actions, dropped } = sanitizeAgentActions(
+      [
+        { type: "removeCard", columnId: COLUMN_ID, cardId: "khong-ton-tai" },
+        { type: "removeCard", columnId: COLUMN_ID, cardId: CARD_ID },
+      ],
+      active,
+      [active]
+    );
+
+    expect(dropped).toBe(1);
+    expect(actions).toHaveLength(1);
   });
 
   it("clamps an out-of-range move index to the target column", () => {

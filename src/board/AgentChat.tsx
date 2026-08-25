@@ -88,7 +88,7 @@ export function AgentChat() {
       const data = (await res.json()) as { reply?: string; actions?: AppAction[]; error?: string };
       if (data.error) throw new Error(data.error);
 
-      const actions = sanitizeAgentActions(data.actions ?? [], board, boards);
+      const { actions, dropped } = sanitizeAgentActions(data.actions ?? [], board, boards);
       const deletions = actions.filter(isDestructiveAction);
       const applied = actions.filter((a) => !isDestructiveAction(a));
       applied.forEach((action) => dispatch(action));
@@ -114,6 +114,16 @@ export function AgentChat() {
               },
             ]
           : []),
+        // Without this, an action rejected during validation just vanishes and
+        // the agent's "đã xong" reply is the only thing left on screen.
+        ...(dropped > 0
+          ? [
+              {
+                role: "error" as const,
+                text: `Có ${dropped} thao tác không thực hiện được (không tìm thấy thẻ/cột/board tương ứng). Bạn thử nói rõ tên thẻ hoặc board giúp mình.`,
+              },
+            ]
+          : []),
       ]);
       if (deletions.length > 0) setPendingDeletions(deletions);
     } catch (err) {
@@ -130,17 +140,17 @@ export function AgentChat() {
     // The non-destructive actions from the same reply already went through, so
     // re-validate against the board as it stands now rather than as it looked
     // when the agent proposed these.
-    const stillValid = sanitizeAgentActions(pendingDeletions, board, boards);
+    const { actions: stillValid } = sanitizeAgentActions(pendingDeletions, board, boards);
     stillValid.forEach((action) => dispatch(action));
+    // stillValid can carry board switches needed to reach the target, so count
+    // only the deletions themselves.
+    const deletedCount = stillValid.filter(isDestructiveAction).length;
     setPendingDeletions([]);
     setMessages((prev) => [
       ...prev,
       {
         role: "agent",
-        text:
-          stillValid.length > 0
-            ? `Đã xóa (${stillValid.length} mục).`
-            : "Không còn mục nào để xóa.",
+        text: deletedCount > 0 ? `Đã xóa (${deletedCount} mục).` : "Không còn mục nào để xóa.",
       },
     ]);
   };

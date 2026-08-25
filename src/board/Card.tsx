@@ -4,6 +4,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { motion } from "framer-motion";
 import type { Card, Priority } from "../types";
 import { CardModal } from "./CardModal";
+import { avatarColorFor, initialsFor } from "./avatar";
 
 const PRIORITY_STYLES: Record<Priority, string> = {
   low: "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300",
@@ -97,6 +98,8 @@ export function CardView({
     columnIsDone && card.dueDate && card.enteredColumnAt
       ? completionStatus(card.dueDate, card.enteredColumnAt)
       : null;
+  const subtasks = card.subtasks ?? [];
+  const doneSubtasks = subtasks.filter((s) => s.isDone).length;
 
   return (
     <>
@@ -113,9 +116,34 @@ export function CardView({
           {...attributes}
           {...listeners}
           onClick={() => setOpen(true)}
-          className={`bg-white dark:bg-gray-900 rounded-md shadow-sm border border-gray-100 dark:border-gray-800 border-l-4 ${PRIORITY_BORDER[card.priority]} p-3 cursor-pointer hover:shadow-md dark:hover:shadow-black/30 transition-shadow space-y-2`}
+          className={`bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-100 dark:border-gray-800 border-l-4 ${PRIORITY_BORDER[card.priority]} p-3 cursor-pointer hover:shadow-md hover:-translate-y-0.5 dark:hover:shadow-black/30 transition-all space-y-2`}
         >
-        <div className="text-sm font-medium text-gray-800 dark:text-gray-100">{card.title}</div>
+        <div className="flex items-start justify-between gap-2">
+          <div className="text-sm font-medium text-gray-800 dark:text-gray-100">{card.title}</div>
+          {card.assignee && (
+            <span
+              title={card.assignee}
+              className="flex items-center justify-center w-6 h-6 rounded-full text-white text-[10px] font-semibold shrink-0"
+              style={{ backgroundColor: avatarColorFor(card.assignee) }}
+            >
+              {initialsFor(card.assignee)}
+            </span>
+          )}
+        </div>
+
+        {subtasks.length > 0 && (
+          <div className="flex items-center gap-1.5">
+            <div className="flex-1 h-1.5 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
+              <div
+                className="h-full rounded-full bg-emerald-400 transition-all duration-300"
+                style={{ width: `${(doneSubtasks / subtasks.length) * 100}%` }}
+              />
+            </div>
+            <span className="text-[10px] text-gray-400 dark:text-gray-500 shrink-0">
+              {doneSubtasks}/{subtasks.length}
+            </span>
+          </div>
+        )}
 
         {card.labels.length > 0 && (
           <div className="flex gap-1">
@@ -141,10 +169,10 @@ export function CardView({
             dueDays !== null && (
               <span
                 className={
-                  dueDays < 0
-                    ? "px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-950 text-red-600 dark:text-red-400 font-medium"
+                  dueDays <= 0
+                    ? "px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-950 text-red-600 dark:text-red-400 font-medium animate-pulse-urgent"
                     : dueDays <= DUE_SOON_DAYS
-                      ? "px-1.5 py-0.5 rounded bg-orange-100 dark:bg-orange-950 text-orange-600 dark:text-orange-400 font-medium"
+                      ? "px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-400 font-medium"
                       : "text-gray-400 dark:text-gray-500"
                 }
               >
@@ -162,7 +190,7 @@ export function CardView({
             <span
               className={
                 stuckDays >= STUCK_DANGER_DAYS
-                  ? "px-1.5 py-0.5 rounded bg-red-50 dark:bg-red-950 text-red-500 dark:text-red-400 flex items-center gap-0.5"
+                  ? "px-1.5 py-0.5 rounded bg-violet-50 dark:bg-violet-950 text-violet-600 dark:text-violet-400 flex items-center gap-0.5"
                   : "px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-300 flex items-center gap-0.5"
               }
               title="Thời gian thẻ nằm ở cột này (cycle time)"

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   DndContext,
   PointerSensor,
@@ -14,7 +14,19 @@ export function Board() {
   const [addingColumn, setAddingColumn] = useState(false);
   const [newColumnTitle, setNewColumnTitle] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [assigneeFilter, setAssigneeFilter] = useState<string | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
+  const assignees = Array.from(
+    new Set(
+      board.columns.flatMap((c) => c.cards.map((card) => card.assignee).filter((a): a is string => !!a))
+    )
+  ).sort((a, b) => a.localeCompare(b));
+
+  useEffect(() => {
+    setAssigneeFilter(null);
+    setSearchQuery("");
+  }, [board.id]);
 
   const handleAddColumn = () => {
     const title = newColumnTitle.trim();
@@ -68,11 +80,11 @@ export function Board() {
   return (
     <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
       <div className="flex flex-col h-screen">
-        <div className="px-6 pt-1 pb-3 space-y-2">
-          <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 mb-1">
-            <span>Tiến độ tổng thể</span>
-            <span className="font-medium">
-              {doneCards}/{totalCards} thẻ ({percentDone}%)
+        <div className="px-6 pt-2 pb-4 space-y-3">
+          <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+            <span className="font-medium">Tiến độ tổng thể</span>
+            <span className="font-semibold text-gray-700 dark:text-gray-200">
+              {doneCards}/{totalCards} thẻ · {percentDone}%
             </span>
           </div>
           <div className="h-2 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden max-w-md">
@@ -81,22 +93,42 @@ export function Board() {
               style={{ width: `${percentDone}%` }}
             />
           </div>
-          <div className="relative max-w-xs">
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="🔍 Tìm thẻ theo tiêu đề hoặc mô tả..."
-              className="w-full text-sm rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-1.5 focus:outline-none focus:border-indigo-400"
-            />
-            {searchQuery && (
-              <button
-                type="button"
-                onClick={() => setSearchQuery("")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xs"
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="relative max-w-xs flex-1 min-w-[200px]">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 text-sm pointer-events-none">
+                🔍
+              </span>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Tìm thẻ theo tiêu đề hoặc mô tả..."
+                className="w-full text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 pl-8 pr-8 py-1.5 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900/40"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xs"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+            {assignees.length > 0 && (
+              <select
+                value={assigneeFilter ?? ""}
+                onChange={(e) => setAssigneeFilter(e.target.value || null)}
+                className="text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-1.5 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900/40"
               >
-                ✕
-              </button>
+                <option value="">Tất cả người phụ trách</option>
+                {assignees.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
             )}
           </div>
         </div>
@@ -106,15 +138,20 @@ export function Board() {
           .slice()
           .sort((a, b) => a.order - b.order)
           .map((column) => (
-            <ColumnView key={column.id} column={column} searchQuery={searchQuery} />
+            <ColumnView
+              key={column.id}
+              column={column}
+              searchQuery={searchQuery}
+              assigneeFilter={assigneeFilter}
+            />
           ))}
 
         <div className="w-72 flex-shrink-0">
           {addingColumn ? (
-            <div className="bg-gray-100 dark:bg-gray-800 rounded-lg p-3 space-y-2">
+            <div className="bg-gray-50 dark:bg-gray-800/60 border border-gray-200/70 dark:border-gray-800 rounded-xl p-3 space-y-2">
               <input
                 autoFocus
-                className="w-full text-sm rounded px-2 py-1.5 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
+                className="w-full text-sm rounded-md px-2.5 py-1.5 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:border-indigo-400"
                 placeholder="Tên cột..."
                 value={newColumnTitle}
                 onChange={(e) => setNewColumnTitle(e.target.value)}
@@ -124,14 +161,14 @@ export function Board() {
                 <button
                   type="button"
                   onClick={handleAddColumn}
-                  className="px-2 py-1 text-xs rounded bg-blue-500 text-white"
+                  className="px-2.5 py-1 text-xs rounded-md bg-indigo-500 text-white hover:bg-indigo-600"
                 >
                   Thêm
                 </button>
                 <button
                   type="button"
                   onClick={() => setAddingColumn(false)}
-                  className="px-2 py-1 text-xs rounded border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300"
+                  className="px-2.5 py-1 text-xs rounded-md border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300"
                 >
                   Hủy
                 </button>
@@ -141,7 +178,7 @@ export function Board() {
             <button
               type="button"
               onClick={() => setAddingColumn(true)}
-              className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 bg-gray-100/50 dark:bg-gray-800/50 rounded-lg px-3 py-2 w-full text-left"
+              className="text-sm text-gray-500 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 border border-dashed border-gray-300 dark:border-gray-700 hover:border-indigo-300 dark:hover:border-indigo-700 rounded-xl px-3 py-2.5 w-full text-left transition-colors"
             >
               + Thêm cột
             </button>

@@ -1,5 +1,11 @@
 export type Priority = "low" | "medium" | "high";
 
+export interface Subtask {
+  id: string;
+  title: string;
+  isDone: boolean;
+}
+
 export interface Card {
   id: string;
   title: string;
@@ -9,6 +15,8 @@ export interface Card {
   priority: Priority;
   order: number;
   enteredColumnAt?: string;
+  subtasks?: Subtask[];
+  assignee?: string;
 }
 
 export interface Column {

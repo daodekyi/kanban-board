@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useReducer, useRef, useState, type ReactNode } from "react";
-import type { Board, Card, Column, Priority } from "../types";
+import type { Board, Card, Column, Priority, Subtask } from "../types";
 import { appReducer, createDefaultAppState, migrateToAppState, type AppAction, type AppState } from "./appReducer";
 import { createDefaultBoard } from "./boardReducer";
 import { supabase } from "../lib/supabaseClient";
@@ -39,6 +39,8 @@ interface TaskRow {
   due_date: string | null;
   task_order: number;
   entered_column_at: string | null;
+  subtasks: Subtask[] | null;
+  assignee: string | null;
 }
 
 function assembleBoards(boardRows: BoardRow[], columnRows: ColumnRow[], taskRows: TaskRow[]): Board[] {
@@ -53,6 +55,8 @@ function assembleBoards(boardRows: BoardRow[], columnRows: ColumnRow[], taskRows
       priority: t.priority as Priority,
       order: t.task_order,
       enteredColumnAt: t.entered_column_at ?? undefined,
+      subtasks: t.subtasks ?? [],
+      assignee: t.assignee ?? undefined,
     };
     const list = cardsByColumn.get(t.column_id);
     if (list) list.push(card);
@@ -109,6 +113,8 @@ function flattenBoards(boards: Board[], ownerId: string) {
           due_date: card.dueDate ?? null,
           task_order: card.order ?? cardi,
           entered_column_at: card.enteredColumnAt ?? null,
+          subtasks: card.subtasks ?? [],
+          assignee: card.assignee ?? null,
         });
       });
     });
@@ -168,7 +174,9 @@ export function BoardProvider({ children }: { children: ReactNode }) {
             .in("board_id", boardIds),
           supabase
             .from("tasks")
-            .select("id, column_id, board_id, title, description, labels, priority, due_date, task_order, entered_column_at")
+            .select(
+              "id, column_id, board_id, title, description, labels, priority, due_date, task_order, entered_column_at, subtasks, assignee"
+            )
             .in("board_id", boardIds),
         ]);
 

@@ -6,3 +6,18 @@ body {
   @apply bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-gray-100 transition-colors duration-200;
   margin: 0;
 }
+
+@keyframes pulse-urgent {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.25;
+    transform: scale(1.06);
+  }
+}
+
+.animate-pulse-urgent {
+  animation: pulse-urgent 0.7s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}

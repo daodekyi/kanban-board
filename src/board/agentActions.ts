@@ -185,7 +185,9 @@ export function describeDestructiveAction(action: AppAction, board: Board, board
     case "removeBoard": {
       const target = boards.find((b) => b.id === action.boardId);
       const cardCount = target?.columns.reduce((sum, c) => sum + c.cards.length, 0) ?? 0;
-      return `Xóa board "${target?.title ?? "?"}" cùng toàn bộ ${cardCount} thẻ bên trong`;
+      return cardCount > 0
+        ? `Xóa board "${target?.title ?? "?"}" cùng toàn bộ ${cardCount} thẻ bên trong`
+        : `Xóa board "${target?.title ?? "?"}"`;
     }
     default:
       return "Thao tác không xác định";

@@ -86,14 +86,20 @@ export function AgentChat() {
 
       const actions = sanitizeAgentActions(data.actions ?? [], board, boards);
       const deletions = actions.filter(isDestructiveAction);
-      actions.filter((a) => !isDestructiveAction(a)).forEach((action) => dispatch(action));
+      const applied = actions.filter((a) => !isDestructiveAction(a));
+      applied.forEach((action) => dispatch(action));
+
+      // When the turn is nothing but deletions, the agent's reply only restates
+      // what the confirmation panel already spells out — and phrases it as a
+      // question, which invites a typed answer the composer won't accept. The
+      // panel speaks for itself, so drop the reply in that case.
+      const replyIsRedundant = deletions.length > 0 && applied.length === 0;
 
       setMessages((prev) => [
         ...prev,
-        { role: "agent", text: data.reply || "Đã thực hiện." },
-        // The agent tends to phrase a deletion as a question ("...nhé?"), which
-        // reads like it wants a typed reply. Say plainly, in the app's own
-        // voice, that only the button below does anything.
+        ...(replyIsRedundant
+          ? []
+          : [{ role: "agent" as const, text: data.reply || "Đã thực hiện." }]),
         ...(deletions.length > 0
           ? [
               {

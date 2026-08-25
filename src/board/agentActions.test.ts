@@ -177,6 +177,14 @@ describe("sanitizeAgentActions", () => {
     ).toContain("1 thẻ");
   });
 
+  it("does not mention a card count when the board is empty", () => {
+    const empty: Board = { id: "board-2", title: "Trống", columns: [] };
+
+    expect(describeDestructiveAction({ type: "removeBoard", boardId: "board-2" }, empty, [empty])).toBe(
+      'Xóa board "Trống"'
+    );
+  });
+
   it("clamps an out-of-range move index to the target column", () => {
     const [action] = sanitize({
       type: "moveCard",

@@ -4,7 +4,7 @@ compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]
 
 [vars]
-SUPABASE_URL = "https://your-project.supabase.co"
+SUPABASE_URL = "https://afgumhnrtiajcmhkufgd.supabase.co"
 
 # Secrets (set via `wrangler secret put <NAME>`, do not put real values here):
 #   OPENAI_API_KEY

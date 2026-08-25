@@ -2,6 +2,23 @@ import { v4 as uuidv4 } from "uuid";
 import type { AppAction } from "./appReducer";
 import type { Board, Subtask } from "../types";
 
+/**
+ * The Worker's structured-output schema requires every "unset" patch field to
+ * be an explicit `null` (OpenAI Structured Outputs rejects bare `.optional()`
+ * fields). Drop those nulls entirely rather than spreading them — reducers
+ * merge patches with `{...card, ...patch}`, and an explicit `undefined` value
+ * would still clobber the existing field instead of leaving it alone.
+ */
+function stripUnset<T extends object>(obj: T): Partial<T> {
+  const result: Partial<T> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== null && value !== undefined) {
+      (result as Record<string, unknown>)[key] = value;
+    }
+  }
+  return result;
+}
+
 function normalizeSubtasks(subtasks: unknown, existing: Subtask[] = []): Subtask[] | undefined {
   if (!Array.isArray(subtasks)) return undefined;
   const existingIds = new Set(existing.map((s) => s.id));
@@ -31,20 +48,25 @@ export function sanitizeAgentAction(action: AppAction, board: Board, boards: Boa
     case "removeColumn":
     case "renameColumn":
     case "setColumnDone":
-    case "setWipLimit":
       return findColumn(action.columnId) ? action : null;
+
+    case "setWipLimit":
+      return findColumn(action.columnId)
+        ? { ...action, wipLimit: action.wipLimit ?? undefined }
+        : null;
 
     case "addCard": {
       if (!findColumn(action.columnId) || !action.title?.trim()) return null;
-      if (!action.patch) return action;
-      const subtasks = normalizeSubtasks(action.patch.subtasks);
-      return { ...action, patch: { ...action.patch, subtasks } };
+      if (!action.patch) return { ...action, patch: undefined };
+      const patch = stripUnset(action.patch);
+      if (patch.subtasks !== undefined) patch.subtasks = normalizeSubtasks(patch.subtasks);
+      return { ...action, patch };
     }
 
     case "updateCard": {
       const card = findCard(action.columnId, action.cardId);
       if (!card) return null;
-      const patch = { ...action.patch };
+      const patch = stripUnset(action.patch ?? {});
       if (patch.subtasks !== undefined) {
         patch.subtasks = normalizeSubtasks(patch.subtasks, card.subtasks);
       }

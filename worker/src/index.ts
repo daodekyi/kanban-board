@@ -13,17 +13,19 @@ const SubtaskSchema = z.object({
   isDone: z.boolean(),
 });
 
-const CardPatchSchema = z
-  .object({
-    title: z.string().optional(),
-    description: z.string().optional(),
-    labels: z.array(z.string()).optional(),
-    dueDate: z.string().optional(),
-    priority: z.enum(["low", "medium", "high"]).optional(),
-    assignee: z.string().optional(),
-    subtasks: z.array(SubtaskSchema).optional(),
-  })
-  .partial();
+// OpenAI Structured Outputs requires every optional field to also be
+// nullable (a bare `.optional()` is rejected at the JSON Schema level), so
+// every "not set" field below is modeled as `.nullable()` and the frontend
+// normalizes `null` back to `undefined` before touching app state.
+const CardPatchSchema = z.object({
+  title: z.string().nullable(),
+  description: z.string().nullable(),
+  labels: z.array(z.string()).nullable(),
+  dueDate: z.string().nullable(),
+  priority: z.enum(["low", "medium", "high"]).nullable(),
+  assignee: z.string().nullable(),
+  subtasks: z.array(SubtaskSchema).nullable(),
+});
 
 const ActionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("addColumn"), title: z.string() }),
@@ -33,7 +35,7 @@ const ActionSchema = z.discriminatedUnion("type", [
     type: z.literal("addCard"),
     columnId: z.string(),
     title: z.string(),
-    patch: CardPatchSchema.optional(),
+    patch: CardPatchSchema.nullable(),
   }),
   z.object({
     type: z.literal("updateCard"),
@@ -50,7 +52,7 @@ const ActionSchema = z.discriminatedUnion("type", [
     toIndex: z.number(),
   }),
   z.object({ type: z.literal("setColumnDone"), columnId: z.string(), isDone: z.boolean() }),
-  z.object({ type: z.literal("setWipLimit"), columnId: z.string(), wipLimit: z.number().optional() }),
+  z.object({ type: z.literal("setWipLimit"), columnId: z.string(), wipLimit: z.number().nullable() }),
   z.object({ type: z.literal("addBoard"), title: z.string() }),
   z.object({ type: z.literal("renameBoard"), boardId: z.string(), title: z.string() }),
   z.object({ type: z.literal("removeBoard"), boardId: z.string() }),
@@ -96,7 +98,8 @@ Quy tắc bắt buộc:
 - Khi thêm/sửa/xóa subtask của một card đã có sẵn subtasks, "patch.subtasks" phải là TOÀN BỘ danh sách subtask sau khi thay đổi (giữ nguyên id các subtask cũ không đổi, subtask mới có thể dùng id tạm bất kỳ vì hệ thống sẽ tự cấp lại id thật).
 - Nếu yêu cầu chỉ là câu hỏi hoặc cần tóm tắt/phân tích board (không cần thay đổi dữ liệu), trả lời đầy đủ trong "reply" và để "actions" là mảng rỗng.
 - Nếu yêu cầu không đủ rõ ràng (ví dụ không rõ thêm thẻ vào cột nào, giao cho ai), hỏi lại trong "reply" một cách cụ thể và để "actions" rỗng — không được đoán bừa.
-- Không tự ý thực hiện hành động phá hủy dữ liệu lớn (xóa nhiều thẻ/cột/board cùng lúc) trừ khi người dùng nói rõ ràng.`;
+- Không tự ý thực hiện hành động phá hủy dữ liệu lớn (xóa nhiều thẻ/cột/board cùng lúc) trừ khi người dùng nói rõ ràng.
+- "patch" trong "addCard"/"updateCard" và "wipLimit" trong "setWipLimit" là object/field bắt buộc phải có mặt nhưng cho phép giá trị null: nếu không có patch nào, gán "patch" là null; nếu 1 field trong patch không cần đổi, gán field đó là null (không được bỏ qua field).`;
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {

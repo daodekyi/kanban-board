@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { sanitizeAgentActions } from "./agentActions";
+import {
+  describeDestructiveAction,
+  isDestructiveAction,
+  sanitizeAgentActions,
+} from "./agentActions";
 import type { AppAction } from "./appReducer";
 import type { Board } from "../types";
 
@@ -133,6 +137,44 @@ describe("sanitizeAgentActions", () => {
     const [action] = sanitize({ type: "clearWipLimit", columnId: COLUMN_ID });
 
     expect(action).toEqual({ type: "setWipLimit", columnId: COLUMN_ID, wipLimit: undefined });
+  });
+
+  it("flags every deletion so it can be held for confirmation", () => {
+    expect(isDestructiveAction({ type: "removeCard", columnId: COLUMN_ID, cardId: CARD_ID })).toBe(true);
+    expect(isDestructiveAction({ type: "removeColumn", columnId: COLUMN_ID })).toBe(true);
+    expect(isDestructiveAction({ type: "removeBoard", boardId: BOARD_ID })).toBe(true);
+  });
+
+  it("does not flag non-destructive actions", () => {
+    expect(
+      isDestructiveAction({
+        type: "updateCard",
+        columnId: COLUMN_ID,
+        cardId: CARD_ID,
+        patch: { priority: "high" },
+      })
+    ).toBe(false);
+    expect(
+      isDestructiveAction({
+        type: "moveCard",
+        cardId: CARD_ID,
+        fromColumnId: COLUMN_ID,
+        toColumnId: COLUMN_ID,
+        toIndex: 0,
+      })
+    ).toBe(false);
+  });
+
+  it("names what a deletion removes so the confirmation is specific", () => {
+    const board = makeBoard();
+
+    expect(
+      describeDestructiveAction({ type: "removeCard", columnId: COLUMN_ID, cardId: CARD_ID }, board, [board])
+    ).toContain("Viết báo cáo");
+
+    expect(
+      describeDestructiveAction({ type: "removeColumn", columnId: COLUMN_ID }, board, [board])
+    ).toContain("1 thẻ");
   });
 
   it("clamps an out-of-range move index to the target column", () => {

@@ -1,7 +1,11 @@
 import { useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { useBoard } from "./BoardContext";
-import { sanitizeAgentActions } from "./agentActions";
+import {
+  describeDestructiveAction,
+  isDestructiveAction,
+  sanitizeAgentActions,
+} from "./agentActions";
 import type { AppAction } from "./appReducer";
 
 interface ChatMessage {
@@ -17,6 +21,7 @@ export function AgentChat() {
   const [prompt, setPrompt] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
+  const [pendingDeletions, setPendingDeletions] = useState<AppAction[]>([]);
 
   const handleSend = async () => {
     const text = prompt.trim();
@@ -66,12 +71,14 @@ export function AgentChat() {
       if (data.error) throw new Error(data.error);
 
       const actions = sanitizeAgentActions(data.actions ?? [], board, boards);
-      actions.forEach((action) => dispatch(action));
+      const deletions = actions.filter(isDestructiveAction);
+      actions.filter((a) => !isDestructiveAction(a)).forEach((action) => dispatch(action));
 
       setMessages((prev) => [
         ...prev,
         { role: "agent", text: data.reply || "Đã thực hiện." },
       ]);
+      if (deletions.length > 0) setPendingDeletions(deletions);
     } catch (err) {
       setMessages((prev) => [
         ...prev,
@@ -80,6 +87,30 @@ export function AgentChat() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleConfirmDeletions = () => {
+    // The non-destructive actions from the same reply already went through, so
+    // re-validate against the board as it stands now rather than as it looked
+    // when the agent proposed these.
+    const stillValid = sanitizeAgentActions(pendingDeletions, board, boards);
+    stillValid.forEach((action) => dispatch(action));
+    setPendingDeletions([]);
+    setMessages((prev) => [
+      ...prev,
+      {
+        role: "agent",
+        text:
+          stillValid.length > 0
+            ? `Đã xóa (${stillValid.length} mục).`
+            : "Không còn mục nào để xóa.",
+      },
+    ]);
+  };
+
+  const handleCancelDeletions = () => {
+    setPendingDeletions([]);
+    setMessages((prev) => [...prev, { role: "agent", text: "Đã hủy, không xóa gì cả." }]);
   };
 
   return (
@@ -123,6 +154,38 @@ export function AgentChat() {
             ))}
             {loading && (
               <div className="text-sm text-gray-400 dark:text-gray-500 px-3 py-2">Đang xử lý...</div>
+            )}
+
+            {pendingDeletions.length > 0 && (
+              <div className="rounded-lg border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/60 px-3 py-2.5 space-y-2">
+                <div className="text-sm font-semibold text-red-700 dark:text-red-300">
+                  Xác nhận xóa
+                </div>
+                <ul className="text-sm text-red-700 dark:text-red-300 list-disc pl-4 space-y-0.5">
+                  {pendingDeletions.map((action, i) => (
+                    <li key={i}>{describeDestructiveAction(action, board, boards)}</li>
+                  ))}
+                </ul>
+                <p className="text-xs text-red-600/80 dark:text-red-400/80">
+                  Hành động này không thể hoàn tác.
+                </p>
+                <div className="flex gap-2 pt-0.5">
+                  <button
+                    type="button"
+                    onClick={handleConfirmDeletions}
+                    className="px-3 py-1 text-xs rounded-md bg-red-500 text-white hover:bg-red-600"
+                  >
+                    Xóa
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCancelDeletions}
+                    className="px-3 py-1 text-xs rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-white dark:hover:bg-gray-800"
+                  >
+                    Hủy
+                  </button>
+                </div>
+              </div>
             )}
           </div>
 

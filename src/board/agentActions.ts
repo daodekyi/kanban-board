@@ -157,6 +157,41 @@ export function sanitizeAgentAction(
   }
 }
 
+/**
+ * Deletions are the only agent actions that destroy data the user can't get
+ * back, so they're held for explicit confirmation instead of being dispatched
+ * with everything else.
+ */
+export function isDestructiveAction(action: AppAction): boolean {
+  return action.type === "removeCard" || action.type === "removeColumn" || action.type === "removeBoard";
+}
+
+/** Human-readable summary of what a deletion would remove, for the confirm prompt. */
+export function describeDestructiveAction(action: AppAction, board: Board, boards: Board[]): string {
+  switch (action.type) {
+    case "removeCard": {
+      const card = board.columns
+        .find((c) => c.id === action.columnId)
+        ?.cards.find((c) => c.id === action.cardId);
+      return `Xóa thẻ "${card?.title ?? "?"}"`;
+    }
+    case "removeColumn": {
+      const column = board.columns.find((c) => c.id === action.columnId);
+      const count = column?.cards.length ?? 0;
+      return count > 0
+        ? `Xóa cột "${column?.title ?? "?"}" cùng ${count} thẻ bên trong`
+        : `Xóa cột "${column?.title ?? "?"}"`;
+    }
+    case "removeBoard": {
+      const target = boards.find((b) => b.id === action.boardId);
+      const cardCount = target?.columns.reduce((sum, c) => sum + c.cards.length, 0) ?? 0;
+      return `Xóa board "${target?.title ?? "?"}" cùng toàn bộ ${cardCount} thẻ bên trong`;
+    }
+    default:
+      return "Thao tác không xác định";
+  }
+}
+
 export function sanitizeAgentActions(actions: AppAction[], board: Board, boards: Board[]): AppAction[] {
   const result: AppAction[] = [];
   for (const raw of actions) {

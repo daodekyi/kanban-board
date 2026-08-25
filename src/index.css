@@ -21,3 +21,24 @@ body {
 .animate-pulse-urgent {
   animation: pulse-urgent 0.7s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
+
+/*
+ * Draws the eye to the floating assistant button without borrowing the
+ * overdue warning's vocabulary: a slow halo that expands and fades, rather
+ * than the fast opacity blink that means "this is late, act now".
+ */
+@keyframes pulse-halo {
+  0% {
+    box-shadow: 0 0 0 0 rgb(249 115 22 / 0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 14px rgb(249 115 22 / 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgb(249 115 22 / 0);
+  }
+}
+
+.animate-pulse-halo {
+  animation: pulse-halo 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}

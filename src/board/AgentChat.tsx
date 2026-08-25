@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { useBoard } from "./BoardContext";
 import {
@@ -22,6 +22,16 @@ export function AgentChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [pendingDeletions, setPendingDeletions] = useState<AppAction[]>([]);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Grow the box with the text, up to a few lines, then let it scroll — the
+  // panel is short, so an unbounded box would swallow the conversation.
+  useLayoutEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+  }, [prompt, open]);
 
   const handleSend = async () => {
     const text = prompt.trim();
@@ -118,7 +128,9 @@ export function AgentChat() {
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="fixed bottom-5 right-5 w-12 h-12 rounded-full bg-indigo-500 hover:bg-indigo-600 text-white text-xl shadow-lg flex items-center justify-center z-40"
+        className={`fixed bottom-5 right-5 w-14 h-14 rounded-full bg-orange-500 hover:bg-orange-600 text-white text-2xl shadow-lg flex items-center justify-center z-40 transition-colors ${
+          open ? "" : "animate-pulse-halo"
+        }`}
         title="Trợ lý Kanban"
       >
         🤖
@@ -143,7 +155,7 @@ export function AgentChat() {
                 key={i}
                 className={`text-sm rounded-lg px-3 py-2 max-w-[85%] ${
                   m.role === "user"
-                    ? "bg-indigo-500 text-white ml-auto"
+                    ? "bg-orange-500 text-white ml-auto"
                     : m.role === "error"
                       ? "bg-red-50 dark:bg-red-950 text-red-600 dark:text-red-400"
                       : "bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-100"
@@ -189,20 +201,28 @@ export function AgentChat() {
             )}
           </div>
 
-          <div className="p-3 border-t border-gray-100 dark:border-gray-800 flex gap-2">
-            <input
-              className="flex-1 text-sm rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 px-2.5 py-1.5 focus:outline-none focus:border-indigo-400"
+          <div className="p-3 border-t border-gray-100 dark:border-gray-800 flex gap-2 items-end">
+            <textarea
+              ref={inputRef}
+              rows={1}
+              className="flex-1 text-sm rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 px-2.5 py-1.5 focus:outline-none focus:border-orange-400 resize-none overflow-y-auto leading-5"
               placeholder="Nhập yêu cầu..."
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSend()}
+              onKeyDown={(e) => {
+                // Enter sends; Shift+Enter starts a new line.
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSend();
+                }
+              }}
               disabled={loading}
             />
             <button
               type="button"
               onClick={handleSend}
               disabled={loading}
-              className="px-3 py-1.5 text-sm rounded-md bg-indigo-500 text-white hover:bg-indigo-600 disabled:opacity-50"
+              className="px-3 py-1.5 text-sm rounded-md bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-50 shrink-0"
             >
               Gửi
             </button>

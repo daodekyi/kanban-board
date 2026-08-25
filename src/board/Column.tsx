@@ -57,12 +57,13 @@ export function ColumnView({
   };
 
   const handleRemoveColumn = () => {
-    if (column.cards.length > 0) {
-      const confirmed = window.confirm(
-        `Cột "${column.title}" có ${column.cards.length} thẻ. Xóa cột sẽ xóa luôn các thẻ này. Tiếp tục?`
-      );
-      if (!confirmed) return;
-    }
+    // Confirm even for an empty column: the ✕ sits next to the done toggle and
+    // is easy to hit by accident, and deleting a card always asks regardless.
+    const message =
+      column.cards.length > 0
+        ? `Cột "${column.title}" có ${column.cards.length} thẻ. Xóa cột sẽ xóa luôn các thẻ này. Hành động này không thể hoàn tác.`
+        : `Xóa cột "${column.title}"? Hành động này không thể hoàn tác.`;
+    if (!window.confirm(message)) return;
     dispatch({ type: "removeColumn", columnId: column.id });
   };
 

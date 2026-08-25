@@ -38,7 +38,12 @@ export type BoardAction =
   | { type: "addColumn"; title: string }
   | { type: "removeColumn"; columnId: string }
   | { type: "renameColumn"; columnId: string; title: string }
-  | { type: "addCard"; columnId: string; title: string }
+  | {
+      type: "addCard";
+      columnId: string;
+      title: string;
+      patch?: Partial<Pick<Card, "description" | "labels" | "dueDate" | "priority" | "assignee" | "subtasks">>;
+    }
   | { type: "updateCard"; columnId: string; cardId: string; patch: Partial<Omit<Card, "id">> }
   | { type: "removeCard"; columnId: string; cardId: string }
   | { type: "moveCard"; cardId: string; fromColumnId: string; toColumnId: string; toIndex: number }

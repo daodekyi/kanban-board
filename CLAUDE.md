@@ -1,6 +1,6 @@
 # Kanban
 
-Ứng dụng Kanban board chạy trên trình duyệt. Vite + React 18 + TypeScript + Tailwind CSS v4, kéo thả bằng dnd-kit, animation bằng framer-motion. Backend: Supabase (Postgres + Auth với Google login).
+Ứng dụng Kanban board chạy trên trình duyệt. Vite + React 18 + TypeScript + Tailwind CSS v4, kéo thả bằng dnd-kit, animation bằng framer-motion. Backend: Supabase (Postgres + Auth với Google login). Có thêm 1 Cloudflare Worker riêng (thư mục `worker/`) chạy trợ lý AI (OpenAI Agents SDK) để thao tác board bằng ngôn ngữ tự nhiên — xem mục [Trợ lý AI (Agent)](#trợ-lý-ai-agent) bên dưới.
 
 ## Lệnh thường dùng
 
@@ -28,6 +28,7 @@ Không có lệnh `npm test` riêng — dùng `npx vitest run`.
 - `src/lib/supabaseClient.ts` — khởi tạo Supabase client, đọc từ `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`
 - `src/theme/ThemeContext.tsx` — dark mode
 - `src/types.ts` — types dùng chung: `Card`, `Column`, `Board`, `BoardAction`, `Priority`, `Subtask`
+- `worker/` — Cloudflare Worker riêng biệt (không phải Cloudflare Pages) chạy trợ lý AI, xem mục [Trợ lý AI (Agent)](#trợ-lý-ai-agent)
 
 State model: mỗi `Card` có `priority`, `labels`, `dueDate`, `enteredColumnAt` (để tính cycle time), `subtasks` (checklist việc con, mỗi item `{id, title, isDone}`), `assignee` (tên tự do, không phải liên kết tới user account thật — xem ghi chú bên dưới); mỗi `Column` có `wipLimit` tùy chọn và `isDone` để đánh dấu cột hoàn thành.
 
@@ -56,6 +57,19 @@ Nếu cần thêm loại cảnh báo mới, chọn màu chưa dùng ở trên v�
 - `signInWithGoogle` (`AuthContext.tsx`) truyền `queryParams: { prompt: "select_account" }` cho `signInWithOAuth` — bắt Google luôn hiện bảng chọn tài khoản, kể cả khi trình duyệt đã có sẵn session Google. Trước khi có dòng này, nếu đã đăng nhập Google trong trình duyệt, bấm nút "Đăng nhập với Google" sẽ tự động dùng tài khoản đang active mà không hỏi lại — gây khó khi cần đổi tài khoản hoặc test multi-account (commit `019b92b`).
 - Biến môi trường cần thiết: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (xem `.env.example`). `.env` đã có sẵn cục bộ, không commit.
 
+## Trợ lý AI (Agent)
+
+- Người dùng thao tác board bằng ngôn ngữ tự nhiên qua panel chat (`src/board/AgentChat.tsx`, nút 🤖 nổi ở góc dưới phải Board). Component đọc board hiện tại từ `useBoard()`, gửi kèm prompt lên 1 Cloudflare Worker riêng.
+- **Kiến trúc quan trọng — không gọi OpenAI trực tiếp từ frontend**: app là client-side thuần (`VITE_*` biến môi trường đều public, bundle vào code chạy trên trình duyệt), nên OpenAI API key **không thể** nằm trong frontend — bất kỳ ai mở DevTools cũng lấy được. Vì vậy có 1 Cloudflare Worker riêng (thư mục `worker/`, **khác** với Cloudflare Pages đang host frontend) giữ vai trò backend duy nhất gọi OpenAI.
+- **Worker** (`worker/src/index.ts`): dùng `@openai/agents` (cần `compatibility_flags = ["nodejs_compat"]` trong `wrangler.toml` vì SDK cần Node APIs), model `gpt-5.6-luna`. Nhận `{ prompt, board, boards }`, trả về `{ reply, actions }` với `actions` là mảng đúng schema `AppAction` (`appReducer.ts`) — dùng Zod `outputType` để ép agent trả structured output đúng dạng.
+- **Worker không đụng vào Supabase để ghi dữ liệu** — nó chỉ "dịch" ngôn ngữ tự nhiên thành danh sách `AppAction`, còn frontend là nơi duy nhất `dispatch()` các action đó qua reducer sẵn có (giống hệt khi người dùng thao tác tay), nên tự động đi qua đúng luồng sync Supabase hiện có trong `BoardContext.tsx`. Không tạo đường ghi dữ liệu song song.
+- **Không tin tưởng mù quáng output của agent**: `src/board/agentActions.ts` (`sanitizeAgentActions`) validate lại từng action trước khi dispatch — loại bỏ action tham chiếu tới `columnId`/`cardId`/`boardId` không có thật trong board hiện tại (chặn agent "ảo giác" ra id), và cấp lại UUID thật cho mọi subtask agent đề xuất thay vì tin id do model tự bịa.
+- **Xác thực Worker**: Worker yêu cầu header `Authorization: Bearer <supabase access token>`, verify bằng cách gọi `${SUPABASE_URL}/auth/v1/user` — chỉ user đã đăng nhập app mới gọi được Worker, tránh bị lạm dụng credit OpenAI.
+- **`addCard` đã được mở rộng** để nhận thêm `patch?: Partial<Pick<Card, "description"|"labels"|"dueDate"|"priority"|"assignee"|"subtasks">>` (xem `types.ts`, `boardReducer.ts`) — lý do: agent cần tạo thẻ mới kèm đầy đủ thuộc tính (priority, assignee, due date...) trong 1 action duy nhất, vì reducer tự sinh UUID cho card mới nên agent không thể biết trước id để gọi `updateCard` nối tiếp.
+- Biến môi trường frontend cần thêm: `VITE_AGENT_WORKER_URL` (URL của Worker sau khi deploy) — xem `.env.example`.
+- Worker cần 3 biến: `SUPABASE_URL` (var thường, đặt trong `wrangler.toml`), `OPENAI_API_KEY` và `SUPABASE_ANON_KEY` (secret, set bằng `wrangler secret put <NAME>`, **không** ghi giá trị thật vào `wrangler.toml`).
+- Deploy Worker: `cd worker && npm install && npx wrangler deploy` (cần `wrangler login` trước nếu chưa). Đây là deploy thủ công qua CLI, **khác** với frontend (Cloudflare Pages, tự deploy qua Git integration) — 2 quy trình deploy độc lập, đừng nhầm lẫn.
+
 ## Deploy
 
 - Frontend host tại **Cloudflare Pages**: https://kanban-board-amc.pages.dev
@@ -70,7 +84,7 @@ Nếu cần thêm loại cảnh báo mới, chọn màu chưa dùng ở trên v�
 - State cập nhật qua reducer + action object (`BoardAction`) — không mutate state trực tiếp.
 - Lint bằng `oxlint` (cấu hình ở `.oxlintrc.json`), không dùng ESLint.
 - Test bằng Vitest + Testing Library, đặt cạnh file nguồn dạng `*.test.ts`.
-- Không có backend server riêng — mọi thứ chạy client-side, gọi thẳng Supabase.
+- Không có backend server riêng cho phần board/auth — mọi thứ chạy client-side, gọi thẳng Supabase. Ngoại lệ duy nhất là Cloudflare Worker cho trợ lý AI (`worker/`), bắt buộc phải có vì lý do bảo mật OpenAI API key — xem mục [Trợ lý AI (Agent)](#trợ-lý-ai-agent).
 
 ## Lịch sử phát triển (tóm tắt từ git log)
 
@@ -85,6 +99,7 @@ Ghi chú: đây là tóm tắt dựa trên lịch sử commit thật (`git log`)
 7. **Deploy production** — frontend đang chạy tại Cloudflare Pages (https://kanban-board-amc.pages.dev), xem mục [Deploy](#deploy) ở trên.
 8. **Subtask, assignee, redesign UI** — thêm checklist việc con và người phụ trách (text tự do, chưa gắn tài khoản thật) cho mỗi thẻ, filter board theo assignee, redesign lại Column/Board/CardModal, tinh chỉnh lại hệ thống màu cảnh báo (đỏ nhấp nháy = quá hạn, cam/vàng = sắp đến hạn, tím tĩnh = thẻ kẹt lâu) để giảm nhiễu thị giác (commit `89380ab`). Xem chi tiết quy ước màu và lý do chọn ở mục [State model](#kiến-trúc) phía trên.
 9. **OAuth: luôn hiện bảng chọn tài khoản Google** — thêm `prompt: select_account` vào request OAuth để không tự động đăng nhập bằng session Google có sẵn trong trình duyệt (commit `019b92b`). Đây là thay đổi nhỏ, không đụng tới logic `onAuthStateChange` đã fix ở mục 6.
+10. **Trợ lý AI thao tác board bằng ngôn ngữ tự nhiên** — thêm Cloudflare Worker riêng (`worker/`, OpenAI Agents SDK, model `gpt-5.6-luna`) dịch prompt tiếng Việt thành các `AppAction` có sẵn, frontend validate rồi dispatch qua reducer hiện có (không tạo đường ghi dữ liệu song song vào Supabase). Đây là backend đầu tiên của app ngoài Supabase — xem chi tiết ở mục [Trợ lý AI (Agent)](#trợ-lý-ai-agent).
 
 Khi cần biết chi tiết hơn một giai đoạn, dùng `git log --oneline` hoặc `git show <hash>` — hash commit ở trên là mốc tra cứu chính xác hơn là hỏi lại người dùng.
 

@@ -8,6 +8,7 @@ import {
 } from "@dnd-kit/core";
 import { useBoard } from "./BoardContext";
 import { ColumnView } from "./Column";
+import { AgentChat } from "./AgentChat";
 
 export function Board() {
   const { board, dispatch } = useBoard();
@@ -186,6 +187,7 @@ export function Board() {
         </div>
       </div>
       </div>
+      <AgentChat />
     </DndContext>
   );
 }

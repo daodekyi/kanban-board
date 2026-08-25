@@ -53,6 +53,7 @@ export function boardReducer(state: Board, action: BoardAction): Board {
             priority: "medium" as const,
             order: c.cards.length,
             enteredColumnAt: new Date().toISOString(),
+            ...action.patch,
           };
           return { ...c, cards: [...c.cards, card] };
         }),

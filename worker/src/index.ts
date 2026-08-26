@@ -1,10 +1,93 @@
-import { Agent, run, setDefaultOpenAIKey } from "@openai/agents";
+import { Agent, OpenAIChatCompletionsModel, run, setDefaultOpenAIKey } from "@openai/agents";
+import OpenAI from "openai";
 import { z } from "zod";
+import { zodToJsonSchema } from "zod-to-json-schema";
 
 export interface Env {
   OPENAI_API_KEY: string;
+  /** Các key dưới đây tùy chọn — chỉ cần cho model tương ứng trong panel chat. */
+  GEMINI_API_KEY?: string;
+  ANTHROPIC_API_KEY?: string;
+  OPENROUTER_API_KEY?: string;
   SUPABASE_URL: string;
   SUPABASE_ANON_KEY: string;
+}
+
+/** Khóa ngắn frontend gửi lên; id model thật chỉ nằm trong bảng MODELS. */
+export type ProviderKey = "gpt" | "gemini" | "claude" | "deepseek";
+
+type SecretName = "OPENAI_API_KEY" | "GEMINI_API_KEY" | "ANTHROPIC_API_KEY" | "OPENROUTER_API_KEY";
+
+interface ModelConfig {
+  /** Nhãn hiển thị — frontend lấy qua `GET /models` chứ không tự chế nhãn. */
+  label: string;
+  /** Id model thật gửi cho provider. */
+  id: string;
+  /**
+   * Base URL của lớp tương thích OpenAI. `undefined` = OpenAI gốc, chạy qua
+   * client mặc định của SDK (đường đã dùng từ đầu và đang ổn — cố ý không kéo
+   * nó sang Chat Completions chỉ để cho "đồng bộ" với các provider khác).
+   */
+  baseURL?: string;
+  /** Secret chứa API key. Thiếu secret ⇒ model hiện mờ, không chọn được. */
+  secret: SecretName;
+  /**
+   * Cách gửi request. Mặc định `"openai"` = lớp tương thích OpenAI dùng chung
+   * cho mọi provider. `"anthropic"` = API gốc `/v1/messages` + tool use, chỉ
+   * dùng khi lớp tương thích không nhận được schema này (xem ghi chú ở Claude).
+   */
+  transport?: "openai" | "anthropic";
+}
+
+/**
+ * Bảng đăng ký model. Cả 4 provider đều nói được "phương ngữ" OpenAI Chat
+ * Completions, nên dùng chung đúng một đường sinh structured output — không có
+ * nơi thứ hai để các bài học về dạng `patch` (mảng, không phải object) phải học
+ * lại từ đầu. Thêm model mới = thêm một dòng ở đây, không đụng logic bên dưới.
+ */
+const MODELS: Record<ProviderKey, ModelConfig> = {
+  gpt: {
+    label: "GPT-5.6 Luna",
+    id: "gpt-5.6-luna",
+    secret: "OPENAI_API_KEY",
+  },
+  gemini: {
+    label: "Gemini 3.5 Flash Lite",
+    id: "gemini-3.5-flash-lite",
+    baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
+    secret: "GEMINI_API_KEY",
+  },
+  // Claude KHÔNG đi qua lớp tương thích OpenAI mà gọi thẳng API gốc
+  // `/v1/messages` (transport: "anthropic"). Lý do, đã thử và có log:
+  //   1. `chat/completions` của Anthropic bắt buộc
+  //      `response_format.json_schema.strict = true`;
+  //   2. nhưng strict thì Anthropic biên dịch schema này thành grammar vượt
+  //      trần → 400 "The compiled grammar is too large".
+  // Hai điều kiện loại trừ nhau nên cửa đó bịt kín. API gốc ép định dạng bằng
+  // tool use (schema là mô tả tham số, không biên dịch thành grammar) nên
+  // không dính trần. Đổi lại output không được bảo đảm cứng ⇒ nhánh này BẮT
+  // BUỘC validate lại bằng chính AgentOutputSchema.
+  claude: {
+    label: "Claude Sonnet 5",
+    id: "claude-sonnet-5",
+    transport: "anthropic",
+    secret: "ANTHROPIC_API_KEY",
+  },
+  deepseek: {
+    label: "DeepSeek V4 Flash (OpenRouter)",
+    id: "deepseek/deepseek-v4-flash",
+    baseURL: "https://openrouter.ai/api/v1",
+    secret: "OPENROUTER_API_KEY",
+  },
+};
+
+const PROVIDER_KEYS = Object.keys(MODELS) as ProviderKey[];
+
+/** Giá trị lạ hoặc thiếu đều rơi về "gpt" — frontend bản cũ không gửi field này. */
+export function resolveProvider(value: unknown): ProviderKey {
+  return typeof value === "string" && (PROVIDER_KEYS as string[]).includes(value)
+    ? (value as ProviderKey)
+    : "gpt";
 }
 
 const SubtaskSchema = z.object({
@@ -70,10 +153,73 @@ const AgentOutputSchema = z.object({
   actions: z.array(ActionSchema),
 });
 
+type AgentOutput = z.infer<typeof AgentOutputSchema>;
+
+/**
+ * Cùng một schema Zod ở trên, chuyển sang JSON Schema để gửi cho model không
+ * bật strict. `$refStrategy: "none"` trải phẳng mọi tham chiếu — provider không
+ * đảm bảo hiểu `$ref`, mà schema này chỉ dùng ở một chỗ nên trải phẳng vô hại.
+ */
+const AGENT_OUTPUT_JSON_SCHEMA = zodToJsonSchema(AgentOutputSchema, {
+  $refStrategy: "none",
+}) as Record<string, unknown>;
+
+/** Tên "công cụ" Claude buộc phải gọi — xem `runViaAnthropic`. */
+const TOOL_NAME = "emit_kanban_result";
+
+/**
+ * Gọi thẳng API gốc của Anthropic bằng tool use: model buộc phải gọi "công cụ"
+ * `emit_kanban_result`, và tham số của công cụ chính là schema output của app.
+ * Đây là cách ép định dạng KHÔNG qua grammar, nên không đụng trần kích thước.
+ *
+ * Trả về JSON thô — người gọi phải validate bằng AgentOutputSchema.
+ */
+async function runViaAnthropic(
+  apiKey: string,
+  modelId: string,
+  userMessage: string
+): Promise<unknown> {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: modelId,
+      // Bắt buộc với API gốc. Board lớn + nhiều action nên để rộng tay.
+      max_tokens: 8000,
+      system: INSTRUCTIONS,
+      messages: [{ role: "user", content: userMessage }],
+      tools: [
+        {
+          name: TOOL_NAME,
+          description: "Trả về phản hồi cho người dùng kèm danh sách thao tác cần thực hiện.",
+          input_schema: AGENT_OUTPUT_JSON_SCHEMA,
+        },
+      ],
+      // Ép model phải dùng đúng công cụ này thay vì trả lời bằng văn xuôi.
+      tool_choice: { type: "tool", name: TOOL_NAME },
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Anthropic ${res.status}: ${(await res.text()).slice(0, 500)}`);
+  }
+
+  const data = (await res.json()) as { content?: { type?: string; name?: string; input?: unknown }[] };
+  const toolUse = data.content?.find((b) => b.type === "tool_use" && b.name === TOOL_NAME);
+  if (!toolUse) {
+    throw new Error("Anthropic không trả về tool_use như yêu cầu");
+  }
+  return toolUse.input;
+}
+
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -115,6 +261,22 @@ export default {
     if (request.method === "OPTIONS") {
       return new Response(null, { headers: CORS_HEADERS });
     }
+
+    // Danh sách model cho dropdown. Không yêu cầu đăng nhập vì ở đây chỉ có
+    // nhãn + id model (không phải bí mật), và panel chat cần dựng dropdown
+    // trước cả khi người dùng gửi yêu cầu đầu tiên. `available` cho frontend
+    // biết model nào chưa có key để hiện mờ thay vì để chọn rồi mới báo lỗi.
+    if (request.method === "GET" && new URL(request.url).pathname === "/models") {
+      return jsonResponse({
+        models: PROVIDER_KEYS.map((key) => ({
+          key,
+          label: MODELS[key].label,
+          id: MODELS[key].id,
+          available: Boolean(env[MODELS[key].secret]),
+        })),
+      });
+    }
+
     if (request.method !== "POST") {
       return jsonResponse({ error: "Method not allowed" }, 405);
     }
@@ -128,6 +290,7 @@ export default {
 
     let body: {
       prompt?: string;
+      model?: string;
       board?: unknown;
       boards?: unknown;
       history?: { role?: string; text?: string }[];
@@ -143,14 +306,17 @@ export default {
       return jsonResponse({ error: "Missing prompt" }, 400);
     }
 
-    setDefaultOpenAIKey(env.OPENAI_API_KEY);
-
-    const agent = new Agent({
-      name: "Kanban Assistant",
-      model: "gpt-5.6-luna",
-      instructions: INSTRUCTIONS,
-      outputType: AgentOutputSchema,
-    });
+    const provider = resolveProvider(body.model);
+    const config = MODELS[provider];
+    const apiKey = env[config.secret];
+    if (!apiKey) {
+      return jsonResponse(
+        {
+          error: `Worker chưa có ${config.secret} nên chưa dùng được ${config.label}. Chạy \`npx wrangler secret put ${config.secret}\` rồi deploy lại.`,
+        },
+        400
+      );
+    }
 
     const contextJson = JSON.stringify({ activeBoard: body.board, boards: body.boards });
 
@@ -160,16 +326,50 @@ export default {
       .join("\n");
     const historyBlock = history ? `Lịch sử hội thoại trước đó:\n${history}\n\n` : "";
 
+    const userMessage = `Dữ liệu board hiện tại:\n${contextJson}\n\n${historyBlock}Yêu cầu người dùng: ${prompt}`;
+
     try {
-      const result = await run(
-        agent,
-        `Dữ liệu board hiện tại:\n${contextJson}\n\n${historyBlock}Yêu cầu người dùng: ${prompt}`
+      if (config.transport === "anthropic") {
+        const raw = await runViaAnthropic(apiKey, config.id, userMessage);
+        // Tool use không ép cứng định dạng như structured output, nên phải soi
+        // lại bằng chính Zod schema đó — đừng để dữ liệu chưa kiểm chứng đi
+        // tiếp xuống frontend.
+        const parsed = AgentOutputSchema.safeParse(raw);
+        if (!parsed.success) {
+          console.error(`Output sai schema (provider=${provider})`, parsed.error.message);
+          return jsonResponse(
+            {
+              error: `Trợ lý (${config.label}) trả về dữ liệu không đúng định dạng. Bạn thử lại hoặc đổi model khác.`,
+            },
+            502
+          );
+        }
+        return jsonResponse(parsed.data satisfies AgentOutput);
+      }
+
+      // SDK vẫn cần key OpenAI mặc định kể cả khi chạy provider khác (nó đọc
+      // key lúc dựng client mặc định), nên set trước khi chạy.
+      setDefaultOpenAIKey(env.OPENAI_API_KEY);
+
+      const agent = new Agent({
+        name: "Kanban Assistant",
+        model: config.baseURL
+          ? new OpenAIChatCompletionsModel(new OpenAI({ apiKey, baseURL: config.baseURL }), config.id)
+          : config.id,
+        instructions: INSTRUCTIONS,
+        outputType: AgentOutputSchema,
+      });
+
+      const result = await run(agent, userMessage);
+      return jsonResponse(
+        result.finalOutput ?? { reply: "Xin lỗi, tôi chưa xử lý được yêu cầu này.", actions: [] }
       );
-      const output = result.finalOutput ?? { reply: "Xin lỗi, tôi chưa xử lý được yêu cầu này.", actions: [] };
-      return jsonResponse(output);
     } catch (err) {
-      console.error("Agent run failed", err);
-      return jsonResponse({ error: "Agent request failed" }, 500);
+      // Ghi kèm provider vì 2 model hỏng theo kiểu rất khác nhau (Gemini có thể
+      // từ chối schema mà OpenAI chấp nhận), và `wrangler tail` là nơi duy nhất
+      // nhìn thấy được khác biệt đó.
+      console.error(`Agent run failed (provider=${provider})`, err);
+      return jsonResponse({ error: `Trợ lý (${provider}) gặp lỗi khi xử lý yêu cầu.` }, 500);
     }
   },
 };

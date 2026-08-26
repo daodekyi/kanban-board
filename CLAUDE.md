@@ -19,7 +19,7 @@ Với Cloudflare Worker của trợ lý AI (chạy trong thư mục `worker/`):
 ```bash
 npx wrangler deploy                  # deploy Worker (frontend deploy riêng, xem mục Deploy)
 npx wrangler tail --format pretty    # xem log Worker realtime — cách nhanh nhất để biết agent lỗi gì
-npx wrangler secret put <NAME>       # set secret (OPENAI_API_KEY, SUPABASE_ANON_KEY)
+npx wrangler secret put <NAME>       # set secret (OPENAI_API_KEY, SUPABASE_ANON_KEY, GEMINI/ANTHROPIC/OPENROUTER_API_KEY)
 npx tsc --noEmit                     # type-check Worker (không nằm trong `npm run build` của frontend)
 ```
 
@@ -91,8 +91,33 @@ Nếu cần thêm loại cảnh báo mới, chọn màu chưa dùng ở trên v�
 - **Xác thực Worker**: Worker yêu cầu header `Authorization: Bearer <supabase access token>`, verify bằng cách gọi `${SUPABASE_URL}/auth/v1/user` — chỉ user đã đăng nhập app mới gọi được Worker, tránh bị lạm dụng credit OpenAI.
 - **`addCard` đã được mở rộng** để nhận thêm `patch?: Partial<Pick<Card, "description"|"labels"|"dueDate"|"priority"|"assignee"|"subtasks">>` (xem `types.ts`, `boardReducer.ts`) — lý do: agent cần tạo thẻ mới kèm đầy đủ thuộc tính (priority, assignee, due date...) trong 1 action duy nhất, vì reducer tự sinh UUID cho card mới nên agent không thể biết trước id để gọi `updateCard` nối tiếp.
 - Sau khi sửa `agentActions.ts`, chạy `npx vitest run` — `agentActions.test.ts` giữ lại đúng các bug thật đã gặp (giá trị `"."`, ngày sai định dạng, id bịa, thao tác cross-board).
+- **Chọn model (4 model)**: picker ở header panel chat, lưu bằng `useLocalStorage` (khóa `kanban.agentModel`). Frontend chỉ gửi **khóa ngắn** `model: "gpt" | "gemini" | "claude" | "deepseek"`; nhãn hiển thị và **id model thật chỉ nằm trong bảng `MODELS`** của Worker, frontend lấy về qua `GET /models`. Nhờ vậy đổi/nâng model chỉ cần deploy Worker, không phải deploy lại frontend — **đừng chép id model vào frontend**. Giá trị thiếu/lạ rơi về `gpt` (`resolveProvider`) nên frontend bản cũ vẫn chạy với Worker mới.
+
+  | Khóa | Id thật | Transport | Đi qua | Secret |
+  |---|---|---|---|---|
+  | `gpt` | `gpt-5.6-luna` | `openai` | OpenAI (client mặc định của SDK) | `OPENAI_API_KEY` |
+  | `gemini` | `gemini-3.5-flash-lite` | `openai` | `generativelanguage.googleapis.com/v1beta/openai/` | `GEMINI_API_KEY` |
+  | `claude` | `claude-sonnet-5` | **`anthropic`** | `api.anthropic.com/v1/messages` (tool use) | `ANTHROPIC_API_KEY` |
+  | `deepseek` | `deepseek/deepseek-v4-flash` | `openai` | `openrouter.ai/api/v1` | `OPENROUTER_API_KEY` |
+
+- **Mặc định mọi provider đi qua lớp tương thích OpenAI** (`OpenAIChatCompletionsModel` của `@openai/agents`), trừ OpenAI dùng client mặc định — cố ý **không** viết đường gọi REST riêng cho từng provider, vì như vậy sẽ có nhiều chỗ sinh structured output và các bài học về dạng `patch` (mảng, không phải object) sẽ phải học lại ở mỗi chỗ. Nếu một provider từ chối schema, ưu tiên đổi `baseURL`/`secret` của model đó sang OpenRouter (một dòng trong `MODELS`) trước khi nghĩ tới việc tách đường gọi riêng.
+
+- **Ngoại lệ duy nhất: Claude phải gọi API gốc `/v1/messages`** (`transport: "anthropic"`, hàm `runViaAnthropic`). Đây **không phải** lựa chọn tùy hứng — đường tương thích OpenAI của Anthropic bị bịt kín bởi 2 điều kiện loại trừ nhau, đã thử và có log:
+
+  1. `api.anthropic.com/v1/chat/completions` bắt buộc `response_format.json_schema.strict = true` → gửi `strict: false` bị trả `400 response_format.json_schema.strict: Input should be True`.
+  2. Nhưng khi `strict: true`, Anthropic biên dịch schema thành "grammar" (bộ luật chặn từng token sai) và schema của app vượt trần → `400 The compiled grammar is too large`.
+
+  Schema lớn vì đúng phần đang bảo vệ dữ liệu: union 14 loại action × union `patch` 7 nhánh, mỗi nhánh `additionalProperties: false`. **Đừng thu nhỏ schema chỉ để chiều Anthropic.** OpenAI/Gemini/OpenRouter không có trần này.
+
+  API gốc ép định dạng bằng **tool use** (schema là mô tả tham số của công cụ `emit_kanban_result`, không biên dịch thành grammar) nên không dính trần. Đổi lại tool use **không bảo đảm cứng** định dạng như structured output ⇒ nhánh này **bắt buộc** `AgentOutputSchema.safeParse` lại trong Worker, sai thì trả 502 kèm câu tiếng Việt. Đừng bỏ bước validate đó.
+
+  Quan trọng: `input_schema` của tool sinh từ **chính `AgentOutputSchema`** qua `zodToJsonSchema(..., { $refStrategy: "none" })`. Nguồn sự thật của schema vẫn là một — chỉ khác cách gửi HTTP. Nếu sửa schema, cả 4 model tự động đi theo, không phải sửa 2 nơi.
+
+  Đã thử và **không dùng được**: Claude qua OpenRouter (`anthropic/claude-sonnet-5`) — chạy được nhưng vòng qua bên thứ ba và bỏ phí credit Anthropic; giữ lại đây như phương án dự phòng nếu key Anthropic hỏng, đổi `transport`/`baseURL`/`secret` là xong.
+- `GET /models` trả `{key, label, id, available}` — `available` tính từ việc secret tương ứng đã set hay chưa, để picker hiện mờ model chưa có key thay vì để người dùng chọn rồi mới báo lỗi. Route này **không yêu cầu đăng nhập** (chỉ có nhãn + id model, không phải bí mật) và panel chat cần nó trước khi người dùng gửi yêu cầu đầu tiên.
+- Chọn model mà Worker chưa có key → trả 400 kèm câu hướng dẫn set đúng tên secret; `AgentChat` đọc body cả khi response lỗi để hiện đúng câu đó thay vì mã trạng thái trần.
 - Biến môi trường frontend cần thêm: `VITE_AGENT_WORKER_URL` (URL của Worker sau khi deploy) — xem `.env.example`.
-- Worker cần 3 biến: `SUPABASE_URL` (var thường, đặt trong `wrangler.toml`), `OPENAI_API_KEY` và `SUPABASE_ANON_KEY` (secret, set bằng `wrangler secret put <NAME>`, **không** ghi giá trị thật vào `wrangler.toml`).
+- Worker cần 3 biến bắt buộc: `SUPABASE_URL` (var thường, đặt trong `wrangler.toml`), `OPENAI_API_KEY` và `SUPABASE_ANON_KEY` (secret, set bằng `wrangler secret put <NAME>`, **không** ghi giá trị thật vào `wrangler.toml`). Thêm secret tùy chọn cho từng model muốn bật: `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`.
 - Deploy Worker: `cd worker && npm install && npx wrangler deploy` (cần `wrangler login` trước nếu chưa). Đây là deploy thủ công qua CLI, **khác** với frontend (Cloudflare Pages, tự deploy qua Git integration) — 2 quy trình deploy độc lập, đừng nhầm lẫn.
 
 ## Deploy
@@ -127,6 +152,8 @@ Ghi chú: đây là tóm tắt dựa trên lịch sử commit thật (`git log`)
 10. **Trợ lý AI thao tác board bằng ngôn ngữ tự nhiên** — thêm Cloudflare Worker riêng (`worker/`, OpenAI Agents SDK, model `gpt-5.6-luna`) dịch prompt tiếng Việt thành các `AppAction` có sẵn, frontend validate rồi dispatch qua reducer hiện có (không tạo đường ghi dữ liệu song song vào Supabase). Đây là backend đầu tiên của app ngoài Supabase — xem chi tiết ở mục [Trợ lý AI (Agent)](#trợ-lý-ai-agent).
 11. **Gia cố agent sau các sự cố thật khi dùng** — đổi `patch` sang dạng mảng `{field, value}` vì model điền giá trị giữ chỗ làm mất dữ liệu thẻ và chặn sync Supabase (`5c2790d`); bắt buộc xác nhận trước mọi thao tác xóa (`67400f4`, `4e61170`); cho phép thao tác trên board không active và báo cáo action bị loại bỏ (`222c5cb`); chat tự cuộn + giữ `switchBoard` lại tới khi xác nhận (`0996454`). Các quyết định này đều xuất phát từ bug thật, đọc mục [Trợ lý AI (Agent)](#trợ-lý-ai-agent) trước khi đổi lại.
 12. **Polish giao diện chat + vá lỗ hổng xác nhận xóa** — chat đổi sang tông cam của header, nút 🤖 to hơn kèm hiệu ứng vòng sáng (`animate-pulse-halo`, khác kiểu nhấp nháy đỏ của thẻ quá hạn), ô nhập co giãn theo nội dung có viền cam (`41729ae`, `4550d0d`, `a178ba7`); badge số cột nhận cả dạng "5 Test" không dấu chấm (`3ed0715`); xóa cột rỗng bằng tay giờ cũng hỏi xác nhận như xóa thẻ (`09f330b`).
+
+13. **Trợ lý chọn được 4 model (GPT / Gemini / Claude / DeepSeek)** — picker ở panel chat lấy danh sách từ `GET /models` của Worker; bảng `MODELS` trong Worker là nguồn duy nhất của id model. Ba model dùng chung đường structured output qua lớp tương thích OpenAI; riêng Claude phải gọi API gốc `/v1/messages` bằng tool use vì đường tương thích của Anthropic vừa bắt buộc `strict: true` vừa từ chối grammar sinh ra từ schema này — đọc kỹ mục [Trợ lý AI (Agent)](#trợ-lý-ai-agent) trước khi định "dọn cho gọn" thành một đường duy nhất.
 
 Khi cần biết chi tiết hơn một giai đoạn, dùng `git log --oneline` hoặc `git show <hash>` — hash commit ở trên là mốc tra cứu chính xác hơn là hỏi lại người dùng.
 

@@ -9,3 +9,6 @@ SUPABASE_URL = "https://afgumhnrtiajcmhkufgd.supabase.co"
 # Secrets (set via `wrangler secret put <NAME>`, do not put real values here):
 #   OPENAI_API_KEY
 #   SUPABASE_ANON_KEY
+#   GEMINI_API_KEY  (tùy chọn — chỉ cần nếu muốn dùng model Gemini)
+#   ANTHROPIC_API_KEY (tùy chọn — model Claude)
+#   OPENROUTER_API_KEY (tùy chọn — model DeepSeek)

@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { useBoard } from "./BoardContext";
 import {
@@ -7,6 +7,7 @@ import {
   sanitizeAgentActions,
 } from "./agentActions";
 import type { AppAction } from "./appReducer";
+import { useLocalStorage } from "./useLocalStorage";
 
 interface ChatMessage {
   /** "system" is the app speaking for itself, not the agent — used for prompts the agent must not be mistaken for. */
@@ -14,17 +15,92 @@ interface ChatMessage {
   text: string;
 }
 
+/** Khóa ngắn gửi lên Worker; id model thật do Worker quyết định. */
+type ModelKey = "gpt" | "gemini" | "claude" | "deepseek";
+
+interface ModelOption {
+  key: ModelKey;
+  label: string;
+  id: string;
+  /** false = Worker chưa có API key cho model này. */
+  available: boolean;
+}
+
+/**
+ * Dùng khi chưa gọi được `GET /models` (Worker bản cũ, mất mạng). Chỉ có nhãn
+ * chung chung, không có id — id model là việc của Worker, đoán ở đây thì sớm
+ * muộn cũng lệch với thực tế.
+ */
+const FALLBACK_MODELS: ModelOption[] = [
+  { key: "gpt", label: "GPT", id: "", available: true },
+  { key: "gemini", label: "Gemini", id: "", available: true },
+];
+
 const WORKER_URL = import.meta.env.VITE_AGENT_WORKER_URL as string | undefined;
+
+function modelsUrl(): string | undefined {
+  if (!WORKER_URL) return undefined;
+  try {
+    return new URL("/models", WORKER_URL).toString();
+  } catch {
+    return undefined;
+  }
+}
 
 export function AgentChat() {
   const { board, boards, dispatch } = useBoard();
+  const [model, setModel] = useLocalStorage<ModelKey>("kanban.agentModel", "gpt");
   const [open, setOpen] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [pendingDeletions, setPendingDeletions] = useState<AppAction[]>([]);
+  const [models, setModels] = useState<ModelOption[]>(FALLBACK_MODELS);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const pickerRef = useRef<HTMLDivElement>(null);
+
+  const selected = models.find((m) => m.key === model);
+
+  // Danh sách model (nhãn + id thật + model nào đã có key) chỉ Worker mới biết.
+  // Nạp một lần khi mở panel; hỏng thì giữ nguyên danh sách dự phòng.
+  useEffect(() => {
+    if (!open) return;
+    const url = modelsUrl();
+    if (!url) return;
+    let cancelled = false;
+    fetch(url)
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
+      .then((data: { models?: ModelOption[] }) => {
+        if (!cancelled && Array.isArray(data.models) && data.models.length > 0) {
+          setModels(data.models);
+        }
+      })
+      .catch(() => {
+        /* giữ FALLBACK_MODELS — panel vẫn dùng được */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  // Popup phải đóng khi bấm ra ngoài, nếu không nó che mất khung chat.
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const onPointerDown = (e: MouseEvent) => {
+      if (!pickerRef.current?.contains(e.target as Node)) setPickerOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setPickerOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [pickerOpen]);
 
   // New messages and the confirmation panel are appended at the bottom, so
   // without this they land below the fold and look like nothing happened.
@@ -86,14 +162,20 @@ export function AgentChat() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ prompt: text, board, boards, history }),
+        body: JSON.stringify({ prompt: text, board, boards, history, model }),
       });
 
+      // Đọc body cả khi lỗi: Worker trả lý do cụ thể (vd chưa cấu hình key cho
+      // model đang chọn) — hiện mã trạng thái trần thì người dùng không biết
+      // phải sửa gì.
+      const data = (await res.json().catch(() => ({}))) as {
+        reply?: string;
+        actions?: AppAction[];
+        error?: string;
+      };
       if (!res.ok) {
-        throw new Error(`Trợ lý phản hồi lỗi (${res.status})`);
+        throw new Error(data.error || `Trợ lý phản hồi lỗi (${res.status})`);
       }
-
-      const data = (await res.json()) as { reply?: string; actions?: AppAction[]; error?: string };
       if (data.error) throw new Error(data.error);
 
       const { actions, dropped } = sanitizeAgentActions(data.actions ?? [], board, boards);
@@ -178,6 +260,19 @@ export function AgentChat() {
     ]);
   };
 
+  const handleChangeModel = (option: ModelOption) => {
+    setPickerOpen(false);
+    if (option.key === model || !option.available) return;
+    setModel(option.key);
+    // Ghi mốc vào chính cuộc hội thoại: các câu trả lời phía dưới dòng này là
+    // do model mới trả lời, nếu không thì khi so sánh 2 model sẽ không biết
+    // câu nào của bên nào.
+    setMessages((prev) => [
+      ...prev,
+      { role: "system", text: `Đã chuyển sang ${option.label}.` },
+    ]);
+  };
+
   const handleCancelDeletions = () => {
     setPendingDeletions([]);
     setMessages((prev) => [...prev, { role: "agent", text: "Đã hủy, không xóa gì cả." }]);
@@ -198,15 +293,99 @@ export function AgentChat() {
 
       {open && (
         <div className="fixed bottom-20 right-5 w-96 max-w-[calc(100vw-2.5rem)] h-[520px] max-h-[70vh] bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl flex flex-col z-40">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-800">
-            <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">Trợ lý Kanban</span>
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-sm"
-            >
-              ✕
-            </button>
+          <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-800 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                Trợ lý Kanban
+              </span>
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-sm"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div ref={pickerRef} className="relative flex items-center gap-2">
+              <span className="text-[10px] font-semibold tracking-widest text-gray-400 dark:text-gray-500">
+                MODEL
+              </span>
+              <button
+                type="button"
+                aria-haspopup="listbox"
+                aria-expanded={pickerOpen}
+                onClick={() => setPickerOpen((o) => !o)}
+                // Khóa lúc đang chờ: đổi model giữa chừng thì câu trả lời sắp
+                // tới vẫn của model cũ, nhìn vào picker lại tưởng của model mới.
+                disabled={loading || pendingDeletions.length > 0}
+                className="flex-1 flex items-center justify-between gap-2 text-xs rounded-lg border border-orange-300 dark:border-orange-500/60 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200 px-2.5 py-1.5 hover:border-orange-500 focus:outline-none focus:border-orange-500 disabled:opacity-50"
+              >
+                <span className="truncate">{selected?.label ?? model}</span>
+                {/* Ký tự ▾ trước đây quá nhỏ, người dùng không nhận ra đây là
+                    dropdown — dùng icon vẽ tay, to rõ, và xoay khi mở. */}
+                <svg
+                  viewBox="0 0 20 20"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                  className={`w-4 h-4 shrink-0 text-orange-500 transition-transform ${
+                    pickerOpen ? "rotate-180" : ""
+                  }`}
+                >
+                  <path d="M5 7.5 10 12.5 15 7.5" />
+                </svg>
+              </button>
+
+              {pickerOpen && (
+                <ul
+                  role="listbox"
+                  className="absolute top-full left-0 right-0 mt-1 py-1 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-xl z-10 max-h-60 overflow-y-auto"
+                >
+                  {models.map((option) => {
+                    const isSelected = option.key === model;
+                    return (
+                      <li key={option.key}>
+                        <button
+                          type="button"
+                          role="option"
+                          aria-selected={isSelected}
+                          disabled={!option.available}
+                          onClick={() => handleChangeModel(option)}
+                          className={`w-full text-left px-3 py-1.5 flex items-start gap-2 text-xs ${
+                            option.available
+                              ? "text-gray-700 dark:text-gray-200 hover:bg-orange-50 dark:hover:bg-gray-700"
+                              : "text-gray-400 dark:text-gray-500 cursor-not-allowed"
+                          }`}
+                        >
+                          <span className="w-3 shrink-0 text-orange-500">
+                            {isSelected ? "✓" : ""}
+                          </span>
+                          <span className="min-w-0">
+                            <span className="block truncate">{option.label}</span>
+                            {/* Id thật để biết chính xác model nào đang chạy —
+                                nhãn hiển thị thì đẹp nhưng mơ hồ khi so sánh. */}
+                            {option.id && (
+                              <span className="block truncate font-mono text-[10px] text-gray-400 dark:text-gray-500">
+                                {option.id}
+                              </span>
+                            )}
+                            {!option.available && (
+                              <span className="block text-[10px] text-gray-400 dark:text-gray-500">
+                                chưa cấu hình key
+                              </span>
+                            )}
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
           </div>
 
           <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-3 space-y-2">

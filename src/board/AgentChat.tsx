@@ -8,6 +8,7 @@ import {
 } from "./agentActions";
 import type { AppAction } from "./appReducer";
 import { useLocalStorage } from "./useLocalStorage";
+import { parseChatText } from "./chatText";
 
 interface ChatMessage {
   /** "system" is the app speaking for itself, not the agent — used for prompts the agent must not be mistaken for. */
@@ -24,7 +25,18 @@ interface ModelOption {
   id: string;
   /** false = Worker chưa có API key cho model này. */
   available: boolean;
+  /** Trần context của model, do Worker khai báo. */
+  contextLimit?: number;
 }
+
+/** Số token của lượt gần nhất — Worker lấy từ provider, không phải ước lượng. */
+interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  contextLimit: number;
+}
+
+const nf = new Intl.NumberFormat("vi-VN");
 
 /**
  * Dùng khi chưa gọi được `GET /models` (Worker bản cũ, mất mạng). Chỉ có nhãn
@@ -57,6 +69,7 @@ export function AgentChat() {
   const [pendingDeletions, setPendingDeletions] = useState<AppAction[]>([]);
   const [models, setModels] = useState<ModelOption[]>(FALLBACK_MODELS);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [usage, setUsage] = useState<TokenUsage | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
@@ -148,12 +161,11 @@ export function AgentChat() {
       const token = sessionData.session?.access_token;
       if (!token) throw new Error("Chưa đăng nhập");
 
-      // Error bubbles are local UI state, not part of the conversation the
-      // agent should reason about; the tail is enough for follow-ups like
-      // "đổi ưu tiên task đó" without resending the whole transcript.
+      // Gửi cả phiên (Worker tự cắt bớt lượt cũ khi sắp chạm trần context) để
+      // trợ lý nhớ được hội thoại dài. Bong bóng lỗi là trạng thái UI cục bộ,
+      // không phải thứ agent cần suy luận, nên vẫn loại ra.
       const history = messages
         .filter((m) => m.role !== "error")
-        .slice(-10)
         .map((m) => ({ role: m.role, text: m.text }));
 
       const res = await fetch(WORKER_URL, {
@@ -172,11 +184,13 @@ export function AgentChat() {
         reply?: string;
         actions?: AppAction[];
         error?: string;
+        usage?: TokenUsage;
       };
       if (!res.ok) {
         throw new Error(data.error || `Trợ lý phản hồi lỗi (${res.status})`);
       }
       if (data.error) throw new Error(data.error);
+      if (data.usage) setUsage(data.usage);
 
       const { actions, dropped } = sanitizeAgentActions(data.actions ?? [], board, boards);
 
@@ -260,6 +274,14 @@ export function AgentChat() {
     ]);
   };
 
+  // Dọn = bỏ hẳn lịch sử phiên, không phải chỉ ẩn đi: chính lịch sử này được
+  // gửi kèm mỗi lượt, nên xóa nó là thứ duy nhất thật sự giải phóng context.
+  const handleClearContext = () => {
+    setMessages([]);
+    setPendingDeletions([]);
+    setUsage(null);
+  };
+
   const handleChangeModel = (option: ModelOption) => {
     setPickerOpen(false);
     if (option.key === model || !option.available) return;
@@ -319,7 +341,7 @@ export function AgentChat() {
                 // Khóa lúc đang chờ: đổi model giữa chừng thì câu trả lời sắp
                 // tới vẫn của model cũ, nhìn vào picker lại tưởng của model mới.
                 disabled={loading || pendingDeletions.length > 0}
-                className="flex-1 flex items-center justify-between gap-2 text-xs rounded-lg border border-orange-300 dark:border-orange-500/60 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200 px-2.5 py-1.5 hover:border-orange-500 focus:outline-none focus:border-orange-500 disabled:opacity-50"
+                className="flex-1 flex items-center justify-between gap-2 text-xs rounded-lg border border-orange-400 dark:border-orange-400 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200 px-2.5 py-1.5 hover:border-orange-500 focus:outline-none focus:border-orange-500 disabled:opacity-50"
               >
                 <span className="truncate">{selected?.label ?? model}</span>
                 {/* Ký tự ▾ trước đây quá nhỏ, người dùng không nhận ra đây là
@@ -386,6 +408,39 @@ export function AgentChat() {
                 </ul>
               )}
             </div>
+
+            {/* Thanh đo context. Chỉ hiện sau lượt đầu tiên vì trước đó chưa có
+                số thật nào — hiện 0% ngay từ đầu sẽ là con số bịa. */}
+            {(() => {
+              const limit = usage?.contextLimit ?? selected?.contextLimit;
+              if (!limit) return null;
+              const used = usage?.inputTokens ?? 0;
+              const pct = Math.min(100, (used / limit) * 100);
+              const barColor =
+                pct >= 90 ? "bg-red-500" : pct >= 75 ? "bg-orange-500" : "bg-orange-400";
+              return (
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                    Context: {nf.format(used)} / {nf.format(limit)} token ({pct.toFixed(1)}%)
+                  </span>
+                  <div className="flex-1 h-1.5 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
+                    <div
+                      className={`h-full ${barColor} transition-all`}
+                      style={{ width: `${Math.max(pct, 1)}%` }}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleClearContext}
+                    disabled={loading || messages.length === 0}
+                    title="Xóa lịch sử hội thoại để giải phóng context"
+                    className="text-[11px] px-2 py-0.5 rounded-md border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-40 shrink-0"
+                  >
+                    Dọn
+                  </button>
+                </div>
+              );
+            })()}
           </div>
 
           <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-3 space-y-2">
@@ -402,7 +457,32 @@ export function AgentChat() {
                         : "bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-100"
                 }`}
               >
-                {m.text}
+                {/* Chỉ tin nhắn của trợ lý mới cần dựng định dạng; câu người
+                    dùng gõ thì hiện đúng nguyên văn, kể cả khi có dấu **. */}
+                {m.role === "agent" ? (
+                  <div className="space-y-0.5">
+                    {parseChatText(m.text).map((line, li) => (
+                      <div key={li} className={line.kind === "bullet" ? "flex gap-1.5" : ""}>
+                        {line.kind === "bullet" && (
+                          <span className="text-orange-400 shrink-0 leading-5">•</span>
+                        )}
+                        <span className="min-w-0">
+                          {line.segments.map((seg, si) =>
+                            seg.bold ? (
+                              <strong key={si} className="font-semibold">
+                                {seg.text}
+                              </strong>
+                            ) : (
+                              <span key={si}>{seg.text}</span>
+                            )
+                          )}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  m.text
+                )}
               </div>
             ))}
             {loading && (
@@ -446,7 +526,7 @@ export function AgentChat() {
             <textarea
               ref={inputRef}
               rows={1}
-              className="flex-1 text-sm rounded-lg border border-orange-400 dark:border-orange-500/70 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 px-2.5 py-1.5 focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100 dark:focus:ring-orange-900/40 disabled:border-gray-200 dark:disabled:border-gray-700 resize-none leading-5"
+              className="flex-1 text-sm rounded-lg border border-orange-400 dark:border-orange-400 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 px-2.5 py-1.5 focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100 dark:focus:ring-orange-900/40 disabled:border-gray-200 dark:disabled:border-gray-700 resize-none leading-5"
               placeholder={
                 pendingDeletions.length > 0
                   ? "Bấm Xóa hoặc Hủy ở trên để tiếp tục..."

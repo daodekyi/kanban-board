@@ -12,3 +12,10 @@ SUPABASE_URL = "https://afgumhnrtiajcmhkufgd.supabase.co"
 #   GEMINI_API_KEY  (tùy chọn — chỉ cần nếu muốn dùng model Gemini)
 #   ANTHROPIC_API_KEY (tùy chọn — model Claude)
 #   OPENROUTER_API_KEY (tùy chọn — model DeepSeek)
+
+# Dữ liệu board (giai đoạn 1 chuyển khỏi Supabase). database_id không phải bí mật.
+[[d1_databases]]
+binding = "DB"
+database_name = "kanban-db"
+database_id = "a9f8ad2f-20cd-4772-93dc-c40ba340e235"
+migrations_dir = "migrations"

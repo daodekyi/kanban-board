@@ -3,6 +3,7 @@ import OpenAI from "openai";
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { bearerToken, verifyUser } from "./auth";
+import { d1Runner, loadRows, syncRows } from "./data";
 
 export interface Env {
   OPENAI_API_KEY: string;
@@ -12,6 +13,8 @@ export interface Env {
   OPENROUTER_API_KEY?: string;
   SUPABASE_URL: string;
   SUPABASE_ANON_KEY: string;
+  /** D1 chứa board/cột/thẻ (khai báo trong wrangler.toml). */
+  DB: D1Database;
 }
 
 /** Khóa ngắn frontend gửi lên; id model thật chỉ nằm trong bảng MODELS. */
@@ -291,6 +294,34 @@ export default {
           available: Boolean(env[MODELS[key].secret]),
         })),
       });
+    }
+
+    // Dữ liệu board. Xác thực TRƯỚC khi đọc body; userId từ token là owner_id
+    // duy nhất được dùng trong SQL (xem worker/src/data.ts).
+    const { pathname } = new URL(request.url);
+    if (pathname === "/data" || pathname === "/data/sync") {
+      const userId = await verifyUser(bearerToken(request), env);
+      if (!userId) return jsonResponse({ error: "Unauthorized" }, 401);
+      const db = d1Runner(env.DB);
+      try {
+        if (request.method === "GET" && pathname === "/data") {
+          return jsonResponse(await loadRows(db, userId));
+        }
+        if (request.method === "POST" && pathname === "/data/sync") {
+          let body: unknown;
+          try {
+            body = await request.json();
+          } catch {
+            return jsonResponse({ error: "Invalid JSON body" }, 400);
+          }
+          const result = await syncRows(db, userId, body);
+          return result.ok ? jsonResponse({ ok: true }) : jsonResponse({ error: result.error }, 400);
+        }
+        return jsonResponse({ error: "Method not allowed" }, 405);
+      } catch (err) {
+        console.error(`D1 ${request.method} ${pathname} failed`, err);
+        return jsonResponse({ error: "Lỗi cơ sở dữ liệu khi tải/lưu board." }, 500);
+      }
     }
 
     if (request.method !== "POST") {

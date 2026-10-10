@@ -32,24 +32,32 @@ export function createSyncQueue(
   let latest: Rows | null = null;
   let dirty = false;
   let running: Promise<void> | null = null;
+  // Tăng mỗi lần reset (đổi tài khoản / tải lại). Lượt gửi nào thấy số này đã đổi
+  // là việc của "phiên cũ": dừng gửi, không đụng snapshot, không báo lỗi.
+  let generation = 0;
 
-  async function pushOnce(): Promise<boolean> {
+  async function pushOnce(): Promise<"ok" | "failed" | "stale"> {
     const next = latest;
-    if (!next) return true;
+    if (!next) return "ok";
+    const gen = generation;
     const payload = diffRows(snapshot, next);
     if (isEmptyPayload(payload)) {
       onFailedChange(false);
-      return true;
+      return "ok";
     }
     try {
-      for (const chunk of chunkPayload(payload)) await push(chunk);
+      for (const chunk of chunkPayload(payload)) {
+        await push(chunk);
+        if (gen !== generation) return "stale";
+      }
       snapshot = snapshotRows(next);
       onFailedChange(false);
-      return true;
+      return "ok";
     } catch (err) {
+      if (gen !== generation) return "stale";
       console.error("Failed to sync boards to Cloudflare D1", err);
       onFailedChange(true);
-      return false;
+      return "failed";
     }
   }
 
@@ -62,7 +70,8 @@ export function createSyncQueue(
         // khe hở để một update bị bỏ sót.
         while (dirty) {
           dirty = false;
-          if (!(await pushOnce())) break;
+          // Chỉ dừng khi lỗi thật; "stale" thì xem tiếp có update mới sau reset không.
+          if ((await pushOnce()) === "failed") break;
         }
       } finally {
         running = null;
@@ -73,6 +82,7 @@ export function createSyncQueue(
 
   return {
     reset(s) {
+      generation++;
       snapshot = s;
       latest = null;
       dirty = false;

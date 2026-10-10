@@ -46,4 +46,16 @@ describe("createDataApi", () => {
     const api = createDataApi(undefined, async () => "tok", vi.fn());
     await expect(api.load()).rejects.toThrow("VITE_AGENT_WORKER_URL");
   });
+
+  it("sync: 200 nhưng không phải {ok:true} ⇒ reject, không báo đã lưu", async () => {
+    const fetchFn = vi.fn().mockResolvedValue(json({}));
+    const api = createDataApi("https://w.example.dev", async () => "tok", fetchFn);
+    await expect(api.sync(emptyPayload)).rejects.toThrow("VITE_AGENT_WORKER_URL");
+  });
+
+  it("load: 200 nhưng thiếu boards/columns/tasks ⇒ reject", async () => {
+    const fetchFn = vi.fn().mockResolvedValue(json({}));
+    const api = createDataApi("https://w.example.dev", async () => "tok", fetchFn);
+    await expect(api.load()).rejects.toThrow("VITE_AGENT_WORKER_URL");
+  });
 });

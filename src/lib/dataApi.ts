@@ -10,6 +10,9 @@ export interface DataApi {
  * VITE_AGENT_WORKER_URL). Không import supabase ở đây để test chạy được mà
  * không cần biến môi trường — token được truyền vào qua getToken.
  */
+const UNEXPECTED =
+  "Phản hồi không đúng định dạng của Worker — kiểm tra VITE_AGENT_WORKER_URL có đang trỏ đúng Worker không.";
+
 export function createDataApi(
   baseUrl: string | undefined,
   getToken: () => Promise<string | null>,
@@ -29,10 +32,15 @@ export function createDataApi(
 
   return {
     async load() {
-      return (await call("/data")) as Rows;
+      const body = (await call("/data")) as Partial<Rows>;
+      if (!Array.isArray(body.boards) || !Array.isArray(body.columns) || !Array.isArray(body.tasks)) {
+        throw new Error(UNEXPECTED);
+      }
+      return body as Rows;
     },
     async sync(payload) {
-      await call("/data/sync", { method: "POST", body: JSON.stringify(payload) });
+      const body = (await call("/data/sync", { method: "POST", body: JSON.stringify(payload) })) as { ok?: boolean };
+      if (body.ok !== true) throw new Error(UNEXPECTED);
     },
   };
 }

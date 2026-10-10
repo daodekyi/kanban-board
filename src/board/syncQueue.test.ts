@@ -54,4 +54,57 @@ describe("createSyncQueue", () => {
     expect(push).toHaveBeenCalledTimes(2);
     expect(push.mock.calls[1][0].upsert.boards[0].title).toBe("C");
   });
+
+  it("reset giữa lúc đang gửi ⇒ lượt cũ dừng: không gửi thêm chunk, không đè snapshot, không báo lỗi", async () => {
+    let release!: () => void;
+    const push = vi
+      .fn<(p: SyncPayload) => Promise<void>>()
+      .mockImplementationOnce(() => new Promise<void>((r) => (release = r)))
+      .mockResolvedValue();
+    const failed: boolean[] = [];
+    const q = createSyncQueue(push, (f) => failed.push(f));
+    const manyTasks = Array.from({ length: 250 }, (_, i) => ({
+      id: `t${i}`, column_id: "c1", board_id: "b1", title: "x", description: null, labels: [], priority: "low",
+      due_date: null, task_order: i, entered_column_at: null, subtasks: [], assignee: null,
+    }));
+    const first = q.update({ ...rows("A"), tasks: manyTasks }); // 251 dòng ⇒ 2 chunk
+    expect(push).toHaveBeenCalledTimes(1);
+    q.reset(snapshotRows(rows("B")));
+    release();
+    await first;
+    expect(push).toHaveBeenCalledTimes(1);
+    expect(failed).toEqual([]);
+    await q.update(rows("B"));
+    expect(push).toHaveBeenCalledTimes(1);
+  });
+
+  it("update đến lúc đang gửi rồi lượt đó lỗi ⇒ bản mới được giữ và gửi ở retry()", async () => {
+    let fail!: (e: Error) => void;
+    const push = vi
+      .fn<(p: SyncPayload) => Promise<void>>()
+      .mockImplementationOnce(() => new Promise<void>((_, rej) => (fail = rej)))
+      .mockResolvedValue();
+    const q = createSyncQueue(push, () => {});
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const first = q.update(rows("A"));
+    void q.update(rows("B"));
+    fail(new Error("500"));
+    await first;
+    expect(push).toHaveBeenCalledTimes(1);
+    await q.retry();
+    expect(push).toHaveBeenCalledTimes(2);
+    expect(push.mock.calls[1][0].upsert.boards[0].title).toBe("B");
+    spy.mockRestore();
+  });
+
+  it("sau khi gửi lỗi, không tự gửi lại cho tới khi có update hoặc retry", async () => {
+    const push = vi.fn<(p: SyncPayload) => Promise<void>>().mockRejectedValue(new Error("500"));
+    const q = createSyncQueue(push, () => {});
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await q.update(rows("A"));
+    await Promise.resolve();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(push).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
+  });
 });

@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chính sách riêng tư — Kanban Board</title>
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; max-width: 720px; margin: 40px auto; padding: 0 16px; line-height: 1.6; color: #1f2937; background: #fff; }
+    h1 { color: #ea580c; }
+    h2 { margin-top: 28px; font-size: 1.15rem; }
+    a { color: #4f46e5; }
+    .en { color: #6b7280; font-size: 0.95rem; }
+  </style>
+</head>
+<body>
+  <h1>Chính sách riêng tư — Kanban Board</h1>
+  <p>Kanban Board là ứng dụng quản lý công việc cá nhân, làm trong khuôn khổ một khóa học. Trang này giải thích ứng dụng dùng dữ liệu của bạn thế nào.</p>
+
+  <h2>1. Dữ liệu ứng dụng nhận từ Google</h2>
+  <p>Khi bạn bấm "Đăng nhập với Google", ứng dụng chỉ nhận <strong>tên, địa chỉ email và ảnh đại diện</strong> của tài khoản Google. Ứng dụng không xin quyền đọc Gmail, Drive, Lịch hay bất kỳ dữ liệu Google nào khác.</p>
+
+  <h2>2. Ứng dụng dùng dữ liệu đó để làm gì</h2>
+  <ul>
+    <li>Nhận diện bạn khi đăng nhập, để mỗi người chỉ thấy và sửa được board của chính mình.</li>
+    <li>Hiện tên và ảnh đại diện ở góc phải màn hình.</li>
+  </ul>
+
+  <h2>3. Dữ liệu được lưu ở đâu</h2>
+  <p>Tài khoản đăng nhập và nội dung board (cột, thẻ, việc con) được lưu trên <strong>Supabase</strong> (cơ sở dữ liệu Postgres). Cơ sở dữ liệu bật phân quyền theo từng dòng (Row Level Security): người khác không đọc hay sửa được dữ liệu của bạn.</p>
+
+  <h2>4. Chia sẻ dữ liệu</h2>
+  <p>Ứng dụng <strong>không bán, không chia sẻ</strong> dữ liệu của bạn cho bên thứ ba và không dùng cho quảng cáo.</p>
+
+  <h2>5. Xóa dữ liệu</h2>
+  <p>Bạn có thể tự xóa thẻ, cột và board ngay trong ứng dụng. Muốn xóa hẳn tài khoản, hãy liên hệ qua email hỗ trợ hiện trên màn hình đăng nhập Google của ứng dụng.</p>
+
+  <p class="en"><strong>English summary:</strong> Kanban Board only receives your Google name, email address and profile picture, used solely to sign you in and keep each user's boards private. Data is stored in Supabase with row-level security. It is never sold or shared with third parties. You can delete your boards in the app at any time.</p>
+
+  <p><a href="/">← Về ứng dụng Kanban Board</a></p>
+</body>
+</html>

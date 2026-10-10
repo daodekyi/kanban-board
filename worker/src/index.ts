@@ -2,6 +2,7 @@ import { Agent, OpenAIChatCompletionsModel, run, setDefaultOpenAIKey } from "@op
 import OpenAI from "openai";
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
+import { bearerToken, verifyUser } from "./auth";
 
 export interface Env {
   OPENAI_API_KEY: string;
@@ -250,18 +251,6 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-async function verifyUser(token: string, env: Env): Promise<boolean> {
-  if (!token) return false;
-  try {
-    const res = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, {
-      headers: { Authorization: `Bearer ${token}`, apikey: env.SUPABASE_ANON_KEY },
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
 const INSTRUCTIONS = `Bạn là trợ lý quản lý Kanban board cho một ứng dụng thật. Người dùng sẽ cung cấp trạng thái board hiện tại dưới dạng JSON (có id thật của board/column/card) và một yêu cầu bằng ngôn ngữ tự nhiên.
 
 Trả lời bằng "reply" (tiếng Việt, ngắn gọn) và "actions" (danh sách thao tác cần thực hiện, đúng schema đã cung cấp).
@@ -308,10 +297,8 @@ export default {
       return jsonResponse({ error: "Method not allowed" }, 405);
     }
 
-    const authHeader = request.headers.get("Authorization") ?? "";
-    const token = authHeader.replace(/^Bearer\s+/i, "");
-    const authorized = await verifyUser(token, env);
-    if (!authorized) {
+    const userId = await verifyUser(bearerToken(request), env);
+    if (!userId) {
       return jsonResponse({ error: "Unauthorized" }, 401);
     }
 

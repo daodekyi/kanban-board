@@ -1,0 +1,51 @@
+# CI: every push to staging/master and every pull request into master must pass
+# lint, unit tests, and a production build before Cloudflare's deploy is trusted.
+# No secrets needed: tests don't touch Supabase, and the build doesn't need its keys.
+name: CI
+
+on:
+  push:
+    branches: [master, staging]
+  pull_request:
+    branches: [master]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Frontend — lint, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Lint (oxlint)
+        run: npm run lint
+      - name: Unit tests (Vitest)
+        run: npx vitest run
+      - name: Build (tsc + vite)
+        run: npm run build
+
+  worker:
+    name: Worker — type-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: worker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+      - run: npm ci
+      - name: Type-check (tsc)
+        run: npx tsc --noEmit

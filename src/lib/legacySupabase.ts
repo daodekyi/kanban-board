@@ -8,6 +8,14 @@ import { supabase } from "./supabaseClient";
  * ở giai đoạn 2 khi tắt hẳn Supabase.
  */
 export async function loadSupabaseBoards(userId: string): Promise<Board[] | null> {
+  // Dưới RLS, request không có phiên trả về [] chứ không báo lỗi. Nếu coi đó là "user không có
+  // board" thì app sẽ ghi board mặc định lên D1 và chặn vĩnh viễn việc chuyển dữ liệu cũ.
+  // Vì vậy phải chắc chắn có phiên đúng user trước khi tin kết quả rỗng.
+  const { data: sessionData } = await supabase.auth.getSession();
+  if (!sessionData.session || sessionData.session.user.id !== userId) {
+    throw new Error("Phiên đăng nhập Supabase không hợp lệ — không đọc được dữ liệu cũ để chuyển sang.");
+  }
+
   const { data: boardRows, error } = await supabase
     .from("boards")
     .select("id, title, board_order")

@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useReducer, useRef, useState, typ
 import type { Board } from "../types";
 import { appReducer, createDefaultAppState, migrateToAppState, type AppAction, type AppState } from "./appReducer";
 import { createDefaultBoard } from "./boardReducer";
-import { flattenBoards } from "./boardRows";
+import { EMPTY_SNAPSHOT, flattenBoards } from "./boardRows";
 import { createSyncQueue } from "./syncQueue";
 import { loadInitialBoards } from "./loadInitialBoards";
 import { createDataApi } from "../lib/dataApi";
@@ -39,6 +39,9 @@ function readLegacyLocalStorageBoards(): Board[] | null {
 
 export function BoardProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
+  // Chỉ phụ thuộc vào id: onAuthStateChange phát ra object user mới mỗi lần refresh token,
+  // nếu phụ thuộc vào object thì mỗi lần như vậy sẽ tải lại và làm mất thay đổi chưa lưu.
+  const userId = user?.id;
   const [state, dispatch] = useReducer(appReducer, null, createDefaultAppState);
   const [ready, setReady] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -48,7 +51,7 @@ export function BoardProvider({ children }: { children: ReactNode }) {
   const [queue] = useState(() => createSyncQueue((p) => dataApi.sync(p), setSyncFailed));
 
   useEffect(() => {
-    if (!user) return;
+    if (!userId) return;
     let cancelled = false;
     setReady(false);
     setLoadError(null);
@@ -58,7 +61,7 @@ export function BoardProvider({ children }: { children: ReactNode }) {
       try {
         const { boards, snapshot } = await loadInitialBoards({
           loadD1: () => dataApi.load(),
-          loadSupabase: () => loadSupabaseBoards(user.id),
+          loadSupabase: () => loadSupabaseBoards(userId),
           loadLocal: readLegacyLocalStorageBoards,
           makeDefault: createDefaultBoard,
         });
@@ -76,12 +79,17 @@ export function BoardProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [user, queue]);
+  }, [userId, queue]);
+
+  // Khi unmount (đăng xuất, đổi tài khoản) hủy các lần đẩy dữ liệu đang chạy dở của hàng đợi cũ.
+  // StrictMode (dev) chạy mount→cleanup→mount: reset sớm vô hại vì effect tải gọi
+  // queue.reset(snapshot) SAU await, nên snapshot thật luôn được đặt sau cùng.
+  useEffect(() => () => queue.reset(EMPTY_SNAPSHOT), [queue]);
 
   useEffect(() => {
-    if (!user || !ready || hydratingRef.current) return;
+    if (!userId || !ready || hydratingRef.current) return;
     void queue.update(flattenBoards(state.boards));
-  }, [state, user, ready, queue]);
+  }, [state, userId, ready, queue]);
 
   if (loadError) {
     return (

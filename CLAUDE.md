@@ -1,6 +1,6 @@
 # Kanban
 
-Ứng dụng Kanban board chạy trên trình duyệt. Vite + React 18 + TypeScript + Tailwind CSS v4, kéo thả bằng dnd-kit, animation bằng framer-motion. Backend: Supabase (Postgres + Auth với Google login). Có thêm 1 Cloudflare Worker riêng (thư mục `worker/`) chạy trợ lý AI (OpenAI Agents SDK) để thao tác board bằng ngôn ngữ tự nhiên — xem mục [Trợ lý AI (Agent)](#trợ-lý-ai-agent) bên dưới.
+Ứng dụng Kanban board chạy trên trình duyệt. Vite + React 18 + TypeScript + Tailwind CSS v4, kéo thả bằng dnd-kit, animation bằng framer-motion. Backend: **Cloudflare D1** (dữ liệu board/cột/thẻ) qua 1 Cloudflare Worker riêng (thư mục `worker/`), **Supabase chỉ còn lo đăng nhập Google** (giai đoạn 1 của việc gom backend về Cloudflare — xem mục [Backend / Auth](#backend--auth)). Cùng Worker đó chạy trợ lý AI (OpenAI Agents SDK) để thao tác board bằng ngôn ngữ tự nhiên — xem mục [Trợ lý AI (Agent)](#trợ-lý-ai-agent) bên dưới.
 
 ## Lệnh thường dùng
 
@@ -21,7 +21,13 @@ npx wrangler deploy                  # deploy Worker (frontend deploy riêng, xe
 npx wrangler tail --format pretty    # xem log Worker realtime — cách nhanh nhất để biết agent lỗi gì
 npx wrangler secret put <NAME>       # set secret (OPENAI_API_KEY, SUPABASE_ANON_KEY, GEMINI/ANTHROPIC/OPENROUTER_API_KEY)
 npx tsc --noEmit                     # type-check Worker (không nằm trong `npm run build` của frontend)
+npx wrangler d1 migrations apply kanban-db --remote   # áp migration mới trong worker/migrations/ lên D1 thật (--local cho máy mình)
+npx wrangler d1 execute kanban-db --remote --command "SELECT owner_id, count(*) FROM tasks GROUP BY owner_id"   # soi dữ liệu thật
 ```
+
+Test Worker (`worker/test/*.test.ts`, SQLite thật qua `node:sqlite`) chạy chung trong `npx vitest run` ở thư mục gốc. Nếu có git worktree khác nằm trong `.claude/worktrees/`, chạy `npx vitest run --exclude ".claude/**"` để không đếm trùng test của worktree đó.
+
+Chạy cả app ở máy với Worker local: tạo `.env.development.local` chứa `VITE_AGENT_WORKER_URL=http://localhost:8787` (đã bị `*.local` chặn khỏi git) và `worker/.dev.vars` chứa `SUPABASE_ANON_KEY` (giống `VITE_SUPABASE_ANON_KEY`) — rồi chạy Worker (`npm --prefix worker run dev -- --port 8787`) và `npm run dev`. Trợ lý AI ở local sẽ báo lỗi trừ khi `.dev.vars` có key model thật — đó là bình thường, key thật chỉ nằm trong `wrangler secret`.
 
 Khi debug lỗi 500 từ trợ lý, `wrangler tail` cho thấy thông báo lỗi thật (vd schema Zod không hợp lệ) — nhanh hơn nhiều so với đoán từ phía frontend.
 
@@ -37,7 +43,10 @@ curl -s https://kanban-board-amc.pages.dev/ | grep -o 'index-[A-Za-z0-9_-]*\.js'
 - `src/board/` — logic board chính
   - `boardReducer.ts` — reducer thuần cho state của một board (cột/thẻ), có test đi kèm (`boardReducer.test.ts`)
   - `appReducer.ts` — reducer cấp app, quản lý nhiều board (xem `BoardAction` trong `types.ts`)
-  - `BoardContext.tsx` — React context bọc reducer + persistence
+  - `BoardContext.tsx` — React context bọc reducer + persistence (tải từ D1, sync phần chênh, băng "Chưa lưu được" + "Thử lại", cảnh báo khi rời trang lúc còn thay đổi chưa lưu)
+  - `boardRows.ts` — chuyển `Board[]` ⇄ dòng bảng (snake_case, trùng tên cột D1), snapshot, diff, chia chunk ≤200 dòng (board ghi sau cùng), có test
+  - `syncQueue.ts` — hàng đợi sync: một lượt gửi mỗi lúc, dồn thay đổi, giữ snapshot khi lỗi, `reset()` hủy lượt gửi cũ (bộ đếm generation), có test
+  - `loadInitialBoards.ts` — chọn nguồn dữ liệu lúc mở app: D1 → (D1 chưa có board) Supabase cũ → localStorage cũ → board mặc định; lỗi đọc **ném ra**, không coi là "trống", có test
   - `Board.tsx`, `Column.tsx`, `Card.tsx`, `CardModal.tsx` — UI, dnd-kit cho kéo thả
   - `BoardSwitcher.tsx` — chuyển đổi giữa nhiều board
   - `AgentChat.tsx` — panel chat trợ lý AI (nút 🤖 góc dưới phải), gồm luồng xác nhận trước khi xóa
@@ -47,15 +56,21 @@ curl -s https://kanban-board-amc.pages.dev/ | grep -o 'index-[A-Za-z0-9_-]*\.js'
   - `useLocalStorage.ts` — hook persistence (localStorage), có test riêng
 - `src/auth/` — `AuthContext.tsx` (quản lý session Supabase), `LoginScreen.tsx` (màn hình đăng nhập Google OAuth)
 - `src/lib/supabaseClient.ts` — khởi tạo Supabase client, đọc từ `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`
+- `src/lib/dataApi.ts` — gọi `GET /data`, `POST /data/sync` của Worker (cùng `VITE_AGENT_WORKER_URL` với trợ lý AI); phản hồi 2xx sai dạng cũng coi là lỗi, có test
+- `src/lib/legacySupabase.ts` — **chỉ đọc** dữ liệu cũ trên Supabase cho lần chuyển sang D1 đầu tiên; kiểm session đúng user và đếm `count: "exact"` để không lặng lẽ cắt ở 1000 dòng. Bỏ ở giai đoạn 2
 - `src/theme/ThemeContext.tsx` — dark mode
 - `src/types.ts` — types dùng chung: `Card`, `Column`, `Board`, `BoardAction`, `Priority`, `Subtask`
-- `worker/` — Cloudflare Worker riêng biệt (không phải Cloudflare Pages) chạy trợ lý AI, xem mục [Trợ lý AI (Agent)](#trợ-lý-ai-agent)
+- `worker/` — Cloudflare Worker riêng biệt (không phải Cloudflare Pages) chạy trợ lý AI **và** lớp dữ liệu D1, xem mục [Trợ lý AI (Agent)](#trợ-lý-ai-agent) và [Backend / Auth](#backend--auth)
+  - `worker/src/auth.ts` — `verifyUser` hỏi Supabase `/auth/v1/user`, trả về **id user** (dùng làm `owner_id`)
+  - `worker/src/data.ts` — Zod schema payload sync, sinh SQL lọc theo `owner_id`, `loadRows`/`syncRows`, adapter D1
+  - `worker/migrations/` — schema D1 (`0001_init.sql`: `boards`, `columns`, `tasks` + index `owner_id`, cố ý không có foreign key)
+  - `worker/test/` — test bằng SQLite thật, gồm các kịch bản tài khoản B cố đọc/sửa/xóa dữ liệu của A
 
 State model: mỗi `Card` có `priority`, `labels`, `dueDate`, `enteredColumnAt` (để tính cycle time), `subtasks` (checklist việc con, mỗi item `{id, title, isDone}`), `assignee` (tên tự do, không phải liên kết tới user account thật — xem ghi chú bên dưới); mỗi `Column` có `wipLimit` tùy chọn và `isDone` để đánh dấu cột hoàn thành.
 
 ### Assignee — lưu ý quan trọng
 
-`Card.assignee` là **text tự do**, không phải foreign key tới bảng user/account nào. Lý do: mỗi board hiện tại chỉ gắn với 1 owner (`owner_id` trên bảng `boards`), chưa hỗ trợ nhiều tài khoản cùng truy cập 1 board. Nếu sau này cần multi-user thật (mời người khác vào board, gán task cho tài khoản có thật), đây là thay đổi kiến trúc lớn — cần bảng `board_members` + RLS mới, không chỉ đổi kiểu dữ liệu của `assignee`.
+`Card.assignee` là **text tự do**, không phải foreign key tới bảng user/account nào. Lý do: mỗi board hiện tại chỉ gắn với 1 owner (`owner_id` trên bảng `boards`), chưa hỗ trợ nhiều tài khoản cùng truy cập 1 board. Nếu sau này cần multi-user thật (mời người khác vào board, gán task cho tài khoản có thật), đây là thay đổi kiến trúc lớn — cần bảng `board_members` + đổi lại toàn bộ điều kiện `owner_id` trong `worker/src/data.ts`, không chỉ đổi kiểu dữ liệu của `assignee`.
 
 Avatar của assignee dùng **1 màu cố định** (slate, xem `avatarColorFor` trong `avatar.ts`) — trước đó từng thử hash màu theo tên (nhiều màu) và indigo, nhưng đổi lại vì: (1) nhiều màu gây rối mắt khi board đã có nhiều màu cảnh báo khác, (2) indigo trùng màu với badge số thứ tự cột. Nếu định đổi lại màu avatar, tránh trùng với: indigo (số cột), đỏ (quá hạn), cam/vàng (sắp đến hạn, priority cao), tím (thẻ kẹt lâu), xanh lá (hoàn thành đúng/sớm hạn).
 
@@ -72,18 +87,23 @@ Nếu cần thêm loại cảnh báo mới, chọn màu chưa dùng ở trên v�
 
 ## Backend / Auth
 
-- Dữ liệu board hiện lưu qua Supabase (đã migrate từ localStorage-only, xem commit `783d9ea`). `useLocalStorage.ts` vẫn tồn tại nhưng vai trò đang chuyển dần sang Supabase — kiểm tra `BoardContext.tsx` để biết nguồn sự thật hiện tại trước khi giả định.
-- Bảng `tasks` trên Supabase có thêm 2 cột `subtasks` (jsonb, mặc định `[]`) và `assignee` (text, nullable) — thêm bằng migration SQL chạy tay qua Supabase SQL Editor (không phải qua file migration trong repo, vì repo không dùng Supabase CLI/migration files). Nếu cần thêm cột mới cho `tasks` trong tương lai, làm tương tự: viết SQL, hướng dẫn user chạy trong SQL Editor, không có nơi nào trong repo tự động chạy migration.
+- **Dữ liệu board nằm trên Cloudflare D1** (database `kanban-db`, binding `DB` trong `worker/wrangler.toml`). Worker là nơi **duy nhất** đọc/ghi D1, qua 2 route: `GET /data` (trả mọi dòng của user) và `POST /data/sync` (nhận phần chênh `{upsert, remove}`, tối đa 200 dòng/request). Frontend không còn gọi `supabase.from(...)` để lưu board.
+- **Bảo mật thay cho RLS**: D1 (SQLite) không có Row Level Security. Worker xác thực token Supabase để lấy id user, và **mọi** câu SQL trong `worker/src/data.ts` lọc theo `owner_id` = id đó — không bao giờ lấy `owner_id` từ body. DELETE luôn kèm `WHERE owner_id = ?`, UPSERT chỉ cập nhật khi `owner_id` trùng (gửi id của người khác thì không có tác dụng). `worker/test/data.test.ts` giữ các kịch bản tài khoản B cố đè/xóa dữ liệu của A — **sửa `data.ts` thì phải giữ các test đó xanh**.
+- **Giới hạn D1 gói Free** chi phối thiết kế: 100 tham số bind/câu SQL (nên INSERT gộp tối đa 7 thẻ/câu), 50 truy vấn/lần gọi Worker (nên 200 dòng/request, có test ≤49 câu), 100.000 dòng ghi/ngày — từ 1/9/2026 vượt là **lỗi cứng** tới nửa đêm UTC (frontend sẽ hiện băng "Chưa lưu được"). Vì vậy frontend chỉ gửi phần thay đổi, không gửi lại cả board.
+- **Chuyển dữ liệu một lần từ Supabase**: lần đầu mở app, nếu D1 chưa có board nào của user, frontend đọc dữ liệu cũ trên Supabase (chỉ đọc) rồi đẩy lên D1. Board được ghi **sau cùng** nên nếu đứt giữa chừng, lần tải sau D1 vẫn "chưa có board" và chuyển lại từ đầu. Dữ liệu trên Supabase **không bị xóa** — là bản dự phòng, nhưng đứng yên kể từ lúc chuyển (thay đổi sau đó chỉ có trên D1).
+- Thêm cột mới cho D1: tạo file `worker/migrations/000N_<tên>.sql`, chạy `npx wrangler d1 migrations apply kanban-db --local` để thử rồi `--remote` cho thật, cập nhật `TABLES` + schema Zod trong `worker/src/data.ts` và `boardRows.ts`. (Trước đây cột mới của Supabase phải chạy SQL tay trong SQL Editor — cách đó không còn dùng cho dữ liệu board.)
+- `useLocalStorage.ts` vẫn tồn tại nhưng không còn là nơi lưu board; khóa `kanban-board` cũ chỉ được đọc làm phương án cuối khi cả D1 lẫn Supabase đều trống.
 - Auth dùng Supabase Google OAuth. Session state lấy **duy nhất** từ `onAuthStateChange` (xem commit `4823ee7` — cố tình không đọc session ban đầu qua cách khác để tránh state không nhất quán). Nếu đụng vào luồng OAuth, đọc kỹ lịch sử debug gần đây (`b317530`..`ff21306`) trước khi sửa.
 - `signInWithGoogle` (`AuthContext.tsx`) truyền `queryParams: { prompt: "select_account" }` cho `signInWithOAuth` — bắt Google luôn hiện bảng chọn tài khoản, kể cả khi trình duyệt đã có sẵn session Google. Trước khi có dòng này, nếu đã đăng nhập Google trong trình duyệt, bấm nút "Đăng nhập với Google" sẽ tự động dùng tài khoản đang active mà không hỏi lại — gây khó khi cần đổi tài khoản hoặc test multi-account (commit `019b92b`).
-- Biến môi trường cần thiết: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (xem `.env.example`). `.env` đã có sẵn cục bộ, không commit.
+- Biến môi trường cần thiết: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (xem `.env.example`), và `VITE_AGENT_WORKER_URL` — giờ là địa chỉ của **cả** lớp dữ liệu lẫn trợ lý AI. `.env` đã có sẵn cục bộ, không commit.
+- **Giai đoạn 2 (chưa làm)**: chuyển đăng nhập Google khỏi Supabase Auth để bỏ hẳn Supabase. Khi làm, chỗ phải đổi là `verifyUser` trong `worker/src/auth.ts`, `AuthContext.tsx`, và xóa `src/lib/legacySupabase.ts`.
 
 ## Trợ lý AI (Agent)
 
 - Người dùng thao tác board bằng ngôn ngữ tự nhiên qua panel chat (`src/board/AgentChat.tsx`, nút 🤖 nổi ở góc dưới phải Board). Component đọc board hiện tại từ `useBoard()`, gửi kèm prompt lên 1 Cloudflare Worker riêng.
 - **Kiến trúc quan trọng — không gọi OpenAI trực tiếp từ frontend**: app là client-side thuần (`VITE_*` biến môi trường đều public, bundle vào code chạy trên trình duyệt), nên OpenAI API key **không thể** nằm trong frontend — bất kỳ ai mở DevTools cũng lấy được. Vì vậy có 1 Cloudflare Worker riêng (thư mục `worker/`, **khác** với Cloudflare Pages đang host frontend) giữ vai trò backend duy nhất gọi OpenAI.
 - **Worker** (`worker/src/index.ts`): dùng `@openai/agents` (cần `compatibility_flags = ["nodejs_compat"]` trong `wrangler.toml` vì SDK cần Node APIs), model `gpt-5.6-luna`. Nhận `{ prompt, board, boards, history }`, trả về `{ reply, actions }` với `actions` gần đúng schema `AppAction` (`appReducer.ts`) — dùng Zod `outputType` để ép agent trả structured output. `history` là 10 lượt chat gần nhất, cần cho các yêu cầu nối tiếp kiểu "đổi ưu tiên task đó".
-- **Worker không đụng vào Supabase để ghi dữ liệu** — nó chỉ "dịch" ngôn ngữ tự nhiên thành danh sách `AppAction`, còn frontend là nơi duy nhất `dispatch()` các action đó qua reducer sẵn có (giống hệt khi người dùng thao tác tay), nên tự động đi qua đúng luồng sync Supabase hiện có trong `BoardContext.tsx`. Không tạo đường ghi dữ liệu song song.
+- **Phần trợ lý AI của Worker không ghi dữ liệu** — nó chỉ "dịch" ngôn ngữ tự nhiên thành danh sách `AppAction`, còn frontend là nơi duy nhất `dispatch()` các action đó qua reducer sẵn có (giống hệt khi người dùng thao tác tay), nên tự động đi qua đúng luồng sync lên D1 hiện có trong `BoardContext.tsx` (route `/data/sync` cùng Worker). Không tạo đường ghi dữ liệu song song.
 - **Không tin tưởng mù quáng output của agent**: `src/board/agentActions.ts` (`sanitizeAgentActions`) validate lại từng action trước khi dispatch — loại bỏ action tham chiếu tới `columnId`/`cardId`/`boardId` không có thật (chặn agent "ảo giác" ra id), kiểm giá trị từng field (định dạng ngày, priority hợp lệ, text không phải ký tự vô nghĩa), và cấp lại UUID thật cho mọi subtask agent đề xuất. Trả về `{ actions, dropped }` — `dropped` được hiển thị trong chat, **đừng bỏ đi**: action bị loại bỏ âm thầm là thứ khiến nhiều bug ở đây khó phát hiện.
 - **`patch` là MẢNG `{field, value}`, không phải object** (xem `PatchFieldSchema` trong Worker và `buildPatch` trong `agentActions.ts`). Lý do lịch sử quan trọng: OpenAI Structured Outputs không nhận `.optional()` trần, phải kèm `.nullable()` — nghĩa là object patch buộc model phải điền **mọi** field kể cả field không muốn đổi. `gpt-5.6-luna` từng điền `"."` thay vì `null`, xóa mất tiêu đề thẻ và ghi `dueDate: "."` khiến Postgres từ chối **toàn bộ** batch upsert (mọi thay đổi sau đó im lặng không lưu được). Dạng mảng không có chỗ cho "field không đổi" nên không thể sai kiểu đó. **Không quay lại dạng object.**
 - **Xóa dữ liệu luôn phải xác nhận**: `isDestructiveAction` tách `removeCard`/`removeColumn`/`removeBoard` ra khỏi các action khác; chúng được giữ lại trong `pendingDeletions` và chỉ dispatch khi người dùng bấm nút trong `AgentChat`. Ô nhập bị khóa trong lúc chờ — trước đó người dùng gõ "yes" để xác nhận, tạo ra request mới đi tìm thẻ vừa bị xóa. Agent vẫn **phải** gửi action xóa như bình thường (hướng dẫn trong Worker nói rõ điều này) — có lần model tự ý giữ action lại để "hỏi trước", kết quả là không có gì xảy ra cả.
@@ -155,6 +175,8 @@ Ghi chú: đây là tóm tắt dựa trên lịch sử commit thật (`git log`)
 
 13. **Trợ lý chọn được 4 model (GPT / Gemini / Claude / DeepSeek)** — picker ở panel chat lấy danh sách từ `GET /models` của Worker; bảng `MODELS` trong Worker là nguồn duy nhất của id model. Ba model dùng chung đường structured output qua lớp tương thích OpenAI; riêng Claude phải gọi API gốc `/v1/messages` bằng tool use vì đường tương thích của Anthropic vừa bắt buộc `strict: true` vừa từ chối grammar sinh ra từ schema này — đọc kỹ mục [Trợ lý AI (Agent)](#trợ-lý-ai-agent) trước khi định "dọn cho gọn" thành một đường duy nhất.
 
+14. **Chuyển dữ liệu board sang Cloudflare D1 (giai đoạn 1 của việc gom backend về Cloudflare)** — Worker có thêm `GET /data`, `POST /data/sync` trên D1 `kanban-db`, bảo mật bằng `owner_id` lấy từ token thay cho RLS; frontend gửi phần chênh qua hàng đợi sync, hiện băng "Chưa lưu được" + "Thử lại", cảnh báo khi rời trang; lần đầu tự chuyển dữ liệu cũ từ Supabase (chỉ đọc). Supabase chỉ còn lo đăng nhập — giai đoạn 2 (chuyển đăng nhập) chưa làm. Làm theo kế hoạch `docs/superpowers/plans/2026-10-10-d1-data-migration.md`, mỗi task có review riêng; các bug review bắt được (reset không hủy lượt gửi cũ, effect key theo object `user`, Supabase cắt 1000 dòng) đều có ghi chú trong code.
+
 Khi cần biết chi tiết hơn một giai đoạn, dùng `git log --oneline` hoặc `git show <hash>` — hash commit ở trên là mốc tra cứu chính xác hơn là hỏi lại người dùng.
 
 ## Lưu ý khi sửa code
@@ -163,11 +185,12 @@ Khi cần biết chi tiết hơn một giai đoạn, dùng `git log --oneline` h
 - Không thêm debug logging hoặc expose object lên `window` rồi quên xóa — lịch sử gần đây có vài commit riêng chỉ để dọn debug logging OAuth (`5b6f87c` → `ff21306`), tránh lặp lại.
 - Không commit `.env` hoặc bất kỳ khóa Supabase nào. Ghi chú chứa khóa để cạnh project (vd `Secret Keys.docx`) đã được `.gitignore` chặn sẵn — nhưng OpenAI API key và service_role key **không bao giờ** được đưa vào `.env` của frontend, vì Vite nhúng mọi biến `VITE_*` vào bundle chạy trên trình duyệt. Chúng chỉ thuộc về `wrangler secret`.
 - **Mọi thao tác xóa đều phải hỏi trước** — xóa thẻ, xóa cột (kể cả cột rỗng), xóa board, và cả khi trợ lý AI đề xuất xóa. Thao tác tay dùng `window.confirm`; trợ lý AI dùng khung xác nhận trong `AgentChat.tsx`. Nếu thêm đường xóa mới, giữ đúng quy ước này.
-- App là **client-authoritative**: reducer đổi state local trước, `BoardContext.tsx` sync lên Supabase sau. Khi sync lỗi, UI **vẫn hiện như đã thành công** — một thẻ dữ liệu hỏng có thể làm cả batch upsert bị Postgres từ chối, khiến mọi thay đổi tiếp theo im lặng không lưu được. Khi nghi ngờ, mở Console tìm `Failed to sync ... to Supabase` và kiểm tra lại bằng cách F5.
-- Frontend và Worker deploy **độc lập**: sửa `worker/` thì phải `npx wrangler deploy`, push git không tự deploy Worker. Ngược lại sửa `src/` thì push git là đủ. Quên bước này dẫn tới frontend mới chạy với Worker cũ (hoặc ngược lại) — đã gây vài lần debug nhầm hướng.
+- App là **client-authoritative**: reducer đổi state local trước, `BoardContext.tsx` sync phần chênh lên D1 sau. Khi sync lỗi, app **không còn im lặng**: hiện băng "⚠ Chưa lưu được thay đổi lên máy chủ" kèm lý do và nút "Thử lại", Console ghi `Failed to sync boards to Cloudflare D1`, và trình duyệt hỏi "Rời trang?" nếu đóng tab lúc còn thay đổi chưa lưu. Một dòng bị Worker từ chối (400, thông báo chỉ rõ dòng nào, vd `upsert.tasks.3.due_date`) sẽ chặn các lần lưu sau cho tới khi sửa thẻ đó — `wrangler tail` hoặc dòng lý do trên băng cho biết thẻ nào.
+- Đổi thứ tự/cách gọi `queue.reset()` hoặc dependency của effect tải dữ liệu trong `BoardContext.tsx` thì cẩn thận: effect phải key theo `user.id` chứ **không** theo object `user` — `onAuthStateChange` bắn sự kiện mỗi lần làm mới token / quay lại tab, key theo object sẽ tải lại board và âm thầm vứt các thay đổi chưa lưu.
+- Frontend và Worker deploy **độc lập**: sửa `worker/` thì phải `npx wrangler deploy` (và `d1 migrations apply --remote` nếu có migration mới), push git không tự deploy Worker. Khi đổi cả hai cùng lúc, **deploy Worker trước** rồi mới push frontend. Ngược lại sửa `src/` thì push git là đủ. Quên bước này dẫn tới frontend mới chạy với Worker cũ (hoặc ngược lại) — đã gây vài lần debug nhầm hướng.
 
 ## Trạng thái hiện tại
 
-Đã chạy production và được người dùng kiểm thử: board/cột/thẻ, kéo thả, subtask, assignee + filter, dark mode, đa board, đăng nhập Google, và trợ lý AI (tạo/sửa/xóa/di chuyển thẻ, cột, board bằng tiếng Việt, có xác nhận trước khi xóa, làm việc được cả với board không đang mở).
+Dữ liệu board lưu trên Cloudflare D1 (từ mục 14 ở trên); Supabase chỉ còn Auth + bản dữ liệu cũ đứng yên. Đã chạy production và được người dùng kiểm thử: board/cột/thẻ, kéo thả, subtask, assignee + filter, dark mode, đa board, đăng nhập Google, và trợ lý AI (tạo/sửa/xóa/di chuyển thẻ, cột, board bằng tiếng Việt, có xác nhận trước khi xóa, làm việc được cả với board không đang mở).
 
-Ý tưởng đã bàn nhưng **chưa làm**: bình luận & nhật ký hoạt động trên thẻ, đính kèm file (Supabase Storage), sắp xếp nâng cao trong cột. Multi-user thật (nhiều tài khoản chung 1 board) là thay đổi kiến trúc lớn — xem ghi chú ở mục [Assignee](#assignee--lưu-ý-quan-trọng).
+Ý tưởng đã bàn nhưng **chưa làm**: bình luận & nhật ký hoạt động trên thẻ, đính kèm file (Cloudflare R2 cho đúng hướng gom về Cloudflare), sắp xếp nâng cao trong cột. Multi-user thật (nhiều tài khoản chung 1 board) là thay đổi kiến trúc lớn — xem ghi chú ở mục [Assignee](#assignee--lưu-ý-quan-trọng).

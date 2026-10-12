@@ -26,15 +26,17 @@
   </ul>
 
   <h2>3. Dữ liệu được lưu ở đâu</h2>
-  <p>Tài khoản đăng nhập và nội dung board (cột, thẻ, việc con) được lưu trên <strong>Supabase</strong> (cơ sở dữ liệu Postgres). Cơ sở dữ liệu bật phân quyền theo từng dòng (Row Level Security): người khác không đọc hay sửa được dữ liệu của bạn.</p>
+  <p>Nội dung board (board, cột, thẻ, việc con) được lưu trên <strong>Cloudflare D1</strong>, đọc và ghi qua máy chủ của ứng dụng chạy trên Cloudflare Workers. Máy chủ kiểm tra bạn là ai ở mỗi lần đọc/ghi và chỉ cho phép thao tác trên dữ liệu của chính bạn: người khác không đọc hay sửa được board của bạn.</p>
+  <p>Việc đăng nhập Google được xử lý qua <strong>Supabase Auth</strong>: Supabase giữ tài khoản đăng nhập của bạn (tên, email, ảnh đại diện) để xác nhận bạn là ai.</p>
 
   <h2>4. Chia sẻ dữ liệu</h2>
-  <p>Ứng dụng <strong>không bán, không chia sẻ</strong> dữ liệu của bạn cho bên thứ ba và không dùng cho quảng cáo.</p>
+  <p>Ứng dụng <strong>không bán</strong> dữ liệu của bạn và không dùng cho quảng cáo.</p>
+  <p>Ngoại lệ duy nhất là <strong>trợ lý AI</strong> (nút 🤖): khi bạn gửi một yêu cầu, câu bạn gõ cùng nội dung các board của bạn được gửi tới nhà cung cấp model bạn chọn — OpenAI, Google (Gemini), Anthropic (Claude) hoặc OpenRouter (DeepSeek) — để xử lý yêu cầu đó. Nếu không dùng trợ lý AI, dữ liệu không được gửi tới các bên này.</p>
 
   <h2>5. Xóa dữ liệu</h2>
   <p>Bạn có thể tự xóa thẻ, cột và board ngay trong ứng dụng. Muốn xóa hẳn tài khoản, hãy liên hệ qua email hỗ trợ hiện trên màn hình đăng nhập Google của ứng dụng.</p>
 
-  <p class="en"><strong>English summary:</strong> Kanban Board only receives your Google name, email address and profile picture, used solely to sign you in and keep each user's boards private. Data is stored in Supabase with row-level security. It is never sold or shared with third parties. You can delete your boards in the app at any time.</p>
+  <p class="en"><strong>English summary:</strong> Kanban Board only receives your Google name, email address and profile picture, used solely to sign you in and keep each user's boards private. Board data is stored in Cloudflare D1 behind the app's Cloudflare Worker, which only lets you read and change your own boards; Google sign-in is handled by Supabase Auth. Your data is never sold or used for ads. When you use the AI assistant, your request and your board content are sent to the AI provider you picked (OpenAI, Google, Anthropic or OpenRouter) to process that request. You can delete your boards in the app at any time.</p>
 
   <p><a href="/">← Về ứng dụng Kanban Board</a></p>
 </body>

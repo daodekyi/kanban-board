@@ -45,10 +45,10 @@ export function BoardProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(appReducer, null, createDefaultAppState);
   const [ready, setReady] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [syncFailed, setSyncFailed] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const hydratingRef = useRef(true);
   // useState(() => ...) để hàng đợi chỉ tạo đúng 1 lần cho cả vòng đời provider.
-  const [queue] = useState(() => createSyncQueue((p) => dataApi.sync(p), setSyncFailed));
+  const [queue] = useState(() => createSyncQueue((p) => dataApi.sync(p), setSyncError));
 
   useEffect(() => {
     if (!userId) return;
@@ -86,6 +86,18 @@ export function BoardProvider({ children }: { children: ReactNode }) {
   // queue.reset(snapshot) SAU await, nên snapshot thật luôn được đặt sau cùng.
   useEffect(() => () => queue.reset(EMPTY_SNAPSHOT), [queue]);
 
+  // Còn thay đổi chưa lưu lên server (đang gửi dở hoặc đang lỗi) thì đóng tab / F5 sẽ mất
+  // dữ liệu trong bộ nhớ — bật hộp thoại "Rời khỏi trang?" chuẩn của trình duyệt.
+  useEffect(() => {
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!queue.hasPendingChanges()) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [queue]);
+
   useEffect(() => {
     if (!userId || !ready || hydratingRef.current) return;
     void queue.update(flattenBoards(state.boards));
@@ -119,13 +131,14 @@ export function BoardProvider({ children }: { children: ReactNode }) {
 
   return (
     <BoardContext.Provider value={{ board: activeBoard, boards: state.boards, dispatch }}>
-      {syncFailed && (
+      {syncError !== null && (
         // Màu trung tính có chủ ý: đỏ/cam/tím/xanh lá đã dành cho cảnh báo trên thẻ (xem CLAUDE.md).
         <div
           role="alert"
           className="fixed top-2 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 rounded-md bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 text-sm px-3 py-1.5 shadow"
         >
           <span>⚠ Chưa lưu được thay đổi lên máy chủ.</span>
+          <span className="text-xs opacity-70">{syncError}</span>
           <button type="button" onClick={() => void queue.retry()} className="underline font-medium">
             Thử lại
           </button>

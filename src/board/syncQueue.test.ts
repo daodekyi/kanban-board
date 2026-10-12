@@ -27,14 +27,14 @@ describe("createSyncQueue", () => {
 
   it("lỗi thì giữ snapshot cũ, báo failed; lần sau gửi lại rồi báo hết lỗi", async () => {
     const push = vi.fn<(p: SyncPayload) => Promise<void>>().mockRejectedValueOnce(new Error("500")).mockResolvedValue();
-    const failed: boolean[] = [];
+    const failed: (string | null)[] = [];
     const q = createSyncQueue(push, (f) => failed.push(f));
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     await q.update(rows("A"));
     await q.retry();
     expect(push).toHaveBeenCalledTimes(2);
     expect(push.mock.calls[1][0].upsert.boards[0].title).toBe("A");
-    expect(failed).toEqual([true, false]);
+    expect(failed).toEqual(["500", null]);
     expect(spy).toHaveBeenCalledWith("Failed to sync boards to Cloudflare D1", expect.any(Error));
     spy.mockRestore();
   });
@@ -61,7 +61,7 @@ describe("createSyncQueue", () => {
       .fn<(p: SyncPayload) => Promise<void>>()
       .mockImplementationOnce(() => new Promise<void>((r) => (release = r)))
       .mockResolvedValue();
-    const failed: boolean[] = [];
+    const failed: (string | null)[] = [];
     const q = createSyncQueue(push, (f) => failed.push(f));
     const manyTasks = Array.from({ length: 250 }, (_, i) => ({
       id: `t${i}`, column_id: "c1", board_id: "b1", title: "x", description: null, labels: [], priority: "low",
@@ -106,5 +106,57 @@ describe("createSyncQueue", () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(push).toHaveBeenCalledTimes(1);
     spy.mockRestore();
+  });
+});
+
+describe("hasPendingChanges", () => {
+  it("false khi mới tạo", () => {
+    const q = createSyncQueue(vi.fn<(p: SyncPayload) => Promise<void>>().mockResolvedValue(), () => {});
+    expect(q.hasPendingChanges()).toBe(false);
+  });
+
+  it("false sau reset(snapshot) + update(cùng dữ liệu)", async () => {
+    const q = createSyncQueue(vi.fn<(p: SyncPayload) => Promise<void>>().mockResolvedValue(), () => {});
+    q.reset(snapshotRows(rows("A")));
+    await q.update(rows("A"));
+    expect(q.hasPendingChanges()).toBe(false);
+  });
+
+  it("true trong lúc đang gửi, false khi gửi xong", async () => {
+    let release!: () => void;
+    const push = vi
+      .fn<(p: SyncPayload) => Promise<void>>()
+      .mockImplementationOnce(() => new Promise<void>((r) => (release = r)));
+    const q = createSyncQueue(push, () => {});
+    const p = q.update(rows("A"));
+    expect(q.hasPendingChanges()).toBe(true);
+    release();
+    await p;
+    expect(q.hasPendingChanges()).toBe(false);
+  });
+
+  it("true sau khi gửi lỗi, false sau khi retry thành công", async () => {
+    const push = vi.fn<(p: SyncPayload) => Promise<void>>().mockRejectedValueOnce(new Error("500")).mockResolvedValue();
+    const q = createSyncQueue(push, () => {});
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await q.update(rows("A"));
+    expect(q.hasPendingChanges()).toBe(true);
+    await q.retry();
+    expect(q.hasPendingChanges()).toBe(false);
+    spy.mockRestore();
+  });
+
+  it("false ngay sau reset() dù có lượt gửi cũ đang dở", async () => {
+    let release!: () => void;
+    const push = vi
+      .fn<(p: SyncPayload) => Promise<void>>()
+      .mockImplementationOnce(() => new Promise<void>((r) => (release = r)));
+    const q = createSyncQueue(push, () => {});
+    const p = q.update(rows("A"));
+    q.reset(snapshotRows(rows("B")));
+    expect(q.hasPendingChanges()).toBe(false);
+    release();
+    await p;
+    expect(q.hasPendingChanges()).toBe(false);
   });
 });

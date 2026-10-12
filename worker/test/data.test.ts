@@ -150,6 +150,20 @@ describe("buildSyncStatements", () => {
     for (const s of inserts) expect(s.sql).toMatch(/WHERE (boards|columns|tasks)\.owner_id = excluded\.owner_id$/);
   });
 
+  it("trường hợp xấu nhất 200 dòng vẫn ≤ 49 câu lệnh (gói D1 Free cho 50 truy vấn/lần gọi, 1 lượt đã dành cho kiểm tra token Supabase)", () => {
+    const ids = (prefix: string, n: number) => Array.from({ length: n }, (_, i) => `${prefix}${i}`);
+    const tasks200 = payload({ tasks: Array.from({ length: 200 }, (_, i) => task(`t${i}`)) });
+    expect(buildSyncStatements(A, tasks200 as never).length).toBeLessThanOrEqual(49);
+
+    const mixed = payload({
+      boards: Array.from({ length: 15 }, (_, i) => ({ ...board1, id: `b${i}` })),
+      columns: Array.from({ length: 25 }, (_, i) => ({ ...col1, id: `c${i}` })),
+      tasks: Array.from({ length: 60 }, (_, i) => task(`t${i}`)),
+      remove: { taskIds: ids("ot", 50), columnIds: ids("oc", 30), boardIds: ids("ob", 20) },
+    });
+    expect(buildSyncStatements(A, mixed as never).length).toBeLessThanOrEqual(49);
+  });
+
   it("payload rỗng ⇒ không có câu nào", () => {
     expect(buildSyncStatements(A, payload() as never)).toEqual([]);
   });

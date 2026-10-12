@@ -16,6 +16,8 @@ export interface SyncQueue {
   update(rows: Rows): Promise<void>;
   /** Thử gửi lại sau khi lỗi (nút "Thử lại"). */
   retry(): Promise<void>;
+  /** Còn thay đổi mà server chưa có (đang gửi dở hoặc gửi lỗi)? Dùng để cảnh báo khi đóng tab. */
+  hasPendingChanges(): boolean;
 }
 
 /**
@@ -26,7 +28,7 @@ export interface SyncQueue {
  */
 export function createSyncQueue(
   push: (p: SyncPayload) => Promise<void>,
-  onFailedChange: (failed: boolean) => void
+  onFailedChange: (error: string | null) => void
 ): SyncQueue {
   let snapshot: RowSnapshot = EMPTY_SNAPSHOT;
   let latest: Rows | null = null;
@@ -42,7 +44,7 @@ export function createSyncQueue(
     const gen = generation;
     const payload = diffRows(snapshot, next);
     if (isEmptyPayload(payload)) {
-      onFailedChange(false);
+      onFailedChange(null);
       return "ok";
     }
     try {
@@ -51,12 +53,12 @@ export function createSyncQueue(
         if (gen !== generation) return "stale";
       }
       snapshot = snapshotRows(next);
-      onFailedChange(false);
+      onFailedChange(null);
       return "ok";
     } catch (err) {
       if (gen !== generation) return "stale";
       console.error("Failed to sync boards to Cloudflare D1", err);
-      onFailedChange(true);
+      onFailedChange(err instanceof Error ? err.message : String(err));
       return "failed";
     }
   }
@@ -93,6 +95,9 @@ export function createSyncQueue(
     },
     retry() {
       return flush();
+    },
+    hasPendingChanges() {
+      return latest !== null && !isEmptyPayload(diffRows(snapshot, latest));
     },
   };
 }

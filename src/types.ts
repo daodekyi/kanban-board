@@ -35,7 +35,8 @@ export interface Board {
 }
 
 export type BoardAction =
-  | { type: "addColumn"; title: string }
+  /** `columnId` đặt trước được để trợ lý AI tham chiếu cột mới ngay trong cùng lượt; bỏ trống thì reducer tự sinh. */
+  | { type: "addColumn"; title: string; columnId?: string }
   | { type: "removeColumn"; columnId: string }
   | { type: "renameColumn"; columnId: string; title: string }
   | {
@@ -47,5 +48,6 @@ export type BoardAction =
   | { type: "updateCard"; columnId: string; cardId: string; patch: Partial<Omit<Card, "id">> }
   | { type: "removeCard"; columnId: string; cardId: string }
   | { type: "moveCard"; cardId: string; fromColumnId: string; toColumnId: string; toIndex: number }
+  | { type: "moveColumn"; columnId: string; toIndex: number }
   | { type: "setColumnDone"; columnId: string; isDone: boolean }
   | { type: "setWipLimit"; columnId: string; wipLimit?: number };

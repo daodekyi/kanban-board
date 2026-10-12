@@ -138,10 +138,12 @@ export function Board() {
         {board.columns
           .slice()
           .sort((a, b) => a.order - b.order)
-          .map((column) => (
+          .map((column, index, sorted) => (
             <ColumnView
               key={column.id}
               column={column}
+              index={index}
+              columnCount={sorted.length}
               searchQuery={searchQuery}
               assigneeFilter={assigneeFilter}
             />

@@ -1,6 +1,16 @@
-import { createContext, useContext, useEffect, useReducer, useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useReducer,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import type { Board } from "../types";
-import { appReducer, createDefaultAppState, migrateToAppState, type AppAction, type AppState } from "./appReducer";
+import { createDefaultAppState, migrateToAppState, type AppAction, type AppState } from "./appReducer";
+import { createHistory, historyReducer } from "./undoHistory";
 import { createDefaultBoard } from "./boardReducer";
 import { EMPTY_SNAPSHOT, flattenBoards } from "./boardRows";
 import { createSyncQueue } from "./syncQueue";
@@ -13,7 +23,18 @@ import { useAuth } from "../auth/AuthContext";
 interface BoardContextValue {
   board: Board;
   boards: Board[];
+  /** Một action = một bước hoàn tác. */
   dispatch: React.Dispatch<AppAction>;
+  /** Cả nhóm action = MỘT bước hoàn tác (dùng cho các thao tác trợ lý làm trong một câu trả lời). */
+  dispatchBatch: (actions: AppAction[]) => void;
+  undo: () => void;
+  redo: () => void;
+}
+
+/** Ctrl+Z trong ô nhập là hoàn tác chữ của trình duyệt — không cướp phím ở đó. */
+function isTextEditingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
 }
 
 const BoardContext = createContext<BoardContextValue | null>(null);
@@ -42,7 +63,52 @@ export function BoardProvider({ children }: { children: ReactNode }) {
   // Chỉ phụ thuộc vào id: onAuthStateChange phát ra object user mới mỗi lần refresh token,
   // nếu phụ thuộc vào object thì mỗi lần như vậy sẽ tải lại và làm mất thay đổi chưa lưu.
   const userId = user?.id;
-  const [state, dispatch] = useReducer(appReducer, null, createDefaultAppState);
+  const [history, dispatchHistory] = useReducer(historyReducer, null, () =>
+    createHistory(createDefaultAppState())
+  );
+  const state = history.present;
+  const [toast, setToast] = useState<string | null>(null);
+
+  const dispatch = useCallback((action: AppAction) => dispatchHistory({ type: "apply", actions: [action] }), []);
+  const dispatchBatch = useCallback((actions: AppAction[]) => {
+    if (actions.length > 0) dispatchHistory({ type: "apply", actions });
+  }, []);
+  // Đọc độ dài stack qua ref để undo/redo giữ nguyên danh tính giữa các lần
+  // render (listener bàn phím không phải gắn lại sau mỗi thay đổi).
+  const historyRef = useRef(history);
+  historyRef.current = history;
+  const undo = useCallback(() => {
+    if (historyRef.current.past.length === 0) return setToast("Không còn gì để hoàn tác");
+    dispatchHistory({ type: "undo" });
+    setToast("Đã hoàn tác · Ctrl+Shift+Z để làm lại");
+  }, []);
+  const redo = useCallback(() => {
+    if (historyRef.current.future.length === 0) return setToast("Không còn gì để làm lại");
+    dispatchHistory({ type: "redo" });
+    setToast("Đã làm lại");
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || isTextEditingTarget(e.target)) return;
+      const key = e.key.toLowerCase();
+      if (key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+      } else if ((key === "z" && e.shiftKey) || key === "y") {
+        e.preventDefault();
+        redo();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [undo, redo]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = window.setTimeout(() => setToast(null), 2500);
+    return () => window.clearTimeout(t);
+  }, [toast]);
   const [ready, setReady] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -79,7 +145,7 @@ export function BoardProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [userId, queue]);
+  }, [userId, queue, dispatch]);
 
   // Khi unmount (đăng xuất, đổi tài khoản) hủy các lần đẩy dữ liệu đang chạy dở của hàng đợi cũ.
   // StrictMode (dev) chạy mount→cleanup→mount: reset sớm vô hại vì effect tải gọi
@@ -130,7 +196,16 @@ export function BoardProvider({ children }: { children: ReactNode }) {
   const activeBoard = state.boards.find((b) => b.id === state.activeBoardId) ?? state.boards[0];
 
   return (
-    <BoardContext.Provider value={{ board: activeBoard, boards: state.boards, dispatch }}>
+    <BoardContext.Provider value={{ board: activeBoard, boards: state.boards, dispatch, dispatchBatch, undo, redo }}>
+      {toast && (
+        // Trung tính như thanh báo lỗi sync: các màu khác đã dành cho cảnh báo trên thẻ.
+        <div
+          role="status"
+          className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 rounded-md bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 text-sm px-3 py-1.5 shadow"
+        >
+          {toast}
+        </div>
+      )}
       {syncError !== null && (
         // Màu trung tính có chủ ý: đỏ/cam/tím/xanh lá đã dành cho cảnh báo trên thẻ (xem CLAUDE.md).
         <div

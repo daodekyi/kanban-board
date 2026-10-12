@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
+import { useAuth } from "../auth/AuthContext";
 import { useBoard } from "./BoardContext";
 import {
   describeDestructiveAction,
@@ -9,11 +10,46 @@ import {
 import type { AppAction } from "./appReducer";
 import { useLocalStorage } from "./useLocalStorage";
 import { parseChatText } from "./chatText";
+import { useVoiceRecorder } from "./useVoiceRecorder";
+import { splitLeadingNumber } from "./columnTitle";
+import type { Board } from "../types";
 
 interface ChatMessage {
   /** "system" is the app speaking for itself, not the agent — used for prompts the agent must not be mistaken for. */
   role: "user" | "agent" | "system" | "error";
   text: string;
+  /** Dòng "đang chờ xác nhận xóa" — chỉ đúng trong phiên hiện tại, không khôi phục sau khi tải lại trang. */
+  awaitingConfirm?: boolean;
+}
+
+/** Giữ lại bấy nhiêu tin gần nhất khi lưu vào trình duyệt. */
+const STORED_MESSAGE_LIMIT = 100;
+
+function chatStorageKey(userId: string | undefined): string {
+  // Theo từng tài khoản: đổi tài khoản Google trên cùng trình duyệt không được
+  // thấy hội thoại (có cả nội dung board) của tài khoản kia.
+  return `kanban.agentChat.${userId ?? "anon"}`;
+}
+
+function loadMessages(key: string): ChatMessage[] {
+  try {
+    const raw = window.localStorage.getItem(key);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (m): m is ChatMessage =>
+        !!m && typeof m === "object" && typeof m.text === "string" && typeof m.role === "string" && !m.awaitingConfirm
+    );
+  } catch {
+    return [];
+  }
+}
+
+/** Ngày hôm nay theo giờ máy người dùng — Worker chạy UTC nên không tự biết. */
+function localToday(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 /** Khóa ngắn gửi lên Worker; id model thật do Worker quyết định. */
@@ -50,26 +86,42 @@ const FALLBACK_MODELS: ModelOption[] = [
 
 const WORKER_URL = import.meta.env.VITE_AGENT_WORKER_URL as string | undefined;
 
-function modelsUrl(): string | undefined {
+function workerPath(path: string): string | undefined {
   if (!WORKER_URL) return undefined;
   try {
-    return new URL("/models", WORKER_URL).toString();
+    return new URL(path, WORKER_URL).toString();
   } catch {
     return undefined;
   }
 }
 
+/**
+ * Tên riêng trên board làm "từ khóa" cho model nhận dạng giọng nói, để tên
+ * người/cột/thẻ ra đúng chính tả. Ưu tiên thứ người dùng hay gọi tên nhất.
+ */
+function voiceKeywords(board: Board, boards: Board[]): string[] {
+  const assignees = boards.flatMap((b) => b.columns.flatMap((c) => c.cards.map((card) => card.assignee ?? "")));
+  const columns = board.columns.map((c) => splitLeadingNumber(c.title).rest);
+  const boardTitles = boards.map((b) => b.title);
+  const cards = board.columns.flatMap((c) => c.cards.map((card) => card.title));
+  // Worker lọc lại và cắt còn 100 mục — ở đây chỉ bỏ rỗng/trùng cho gọn request.
+  return [...new Set([...assignees, ...columns, ...boardTitles, ...cards].map((k) => k.trim()).filter(Boolean))];
+}
+
 export function AgentChat() {
-  const { board, boards, dispatch } = useBoard();
+  const { board, boards, dispatchBatch, undo, redo } = useBoard();
+  const { user } = useAuth();
+  const storageKey = chatStorageKey(user?.id);
   const [model, setModel] = useLocalStorage<ModelKey>("kanban.agentModel", "gpt");
   const [open, setOpen] = useState(false);
   const [prompt, setPrompt] = useState("");
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => loadMessages(storageKey));
   const [loading, setLoading] = useState(false);
   const [pendingDeletions, setPendingDeletions] = useState<AppAction[]>([]);
   const [models, setModels] = useState<ModelOption[]>(FALLBACK_MODELS);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [usage, setUsage] = useState<TokenUsage | null>(null);
+  const [transcribing, setTranscribing] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
@@ -80,7 +132,7 @@ export function AgentChat() {
   // Nạp một lần khi mở panel; hỏng thì giữ nguyên danh sách dự phòng.
   useEffect(() => {
     if (!open) return;
-    const url = modelsUrl();
+    const url = workerPath("/models");
     if (!url) return;
     let cancelled = false;
     fetch(url)
@@ -115,6 +167,16 @@ export function AgentChat() {
     };
   }, [pickerOpen]);
 
+  // Lưu hội thoại để F5 không mất. Trợ lý vẫn chỉ nhận đúng phần lịch sử này
+  // (Worker cắt theo trần context), và nút "Dọn" xóa luôn bản đã lưu.
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(storageKey, JSON.stringify(messages.slice(-STORED_MESSAGE_LIMIT)));
+    } catch {
+      /* hết chỗ hoặc bị chặn — hội thoại vẫn còn trong phiên này */
+    }
+  }, [messages, storageKey]);
+
   // New messages and the confirmation panel are appended at the bottom, so
   // without this they land below the fold and look like nothing happened.
   useLayoutEffect(() => {
@@ -135,12 +197,51 @@ export function AgentChat() {
     el.style.overflowY = needed > 120 ? "auto" : "hidden";
   }, [prompt, open]);
 
+  // Giọng nói chỉ điền chữ vào ô nhập; người dùng xem lại rồi mới gửi, nên một
+  // câu nghe nhầm không bao giờ tự biến thành thao tác trên board.
+  const handleRecorded = async (audio: Blob) => {
+    const url = workerPath("/transcribe");
+    if (!url) {
+      setMessages((prev) => [...prev, { role: "error", text: "Chưa cấu hình VITE_AGENT_WORKER_URL — chưa dùng được giọng nói." }]);
+      return;
+    }
+    setTranscribing(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) throw new Error("Chưa đăng nhập");
+      const form = new FormData();
+      form.append("audio", audio, "command");
+      form.append("keywords", JSON.stringify(voiceKeywords(board, boards)));
+      const res = await fetch(url, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: form });
+      const data = (await res.json().catch(() => ({}))) as { text?: string; error?: string };
+      if (!res.ok || !data.text) throw new Error(data.error || `Không nhận dạng được giọng nói (${res.status})`);
+      const text = data.text;
+      setPrompt((prev) => (prev.trim() ? `${prev.trimEnd()} ${text}` : text));
+      requestAnimationFrame(() => inputRef.current?.focus());
+    } catch (err) {
+      setMessages((prev) => [
+        ...prev,
+        { role: "error", text: err instanceof Error ? err.message : "Không nhận dạng được giọng nói." },
+      ]);
+    } finally {
+      setTranscribing(false);
+    }
+  };
+
+  const recorder = useVoiceRecorder(
+    (audio) => void handleRecorded(audio),
+    (message) => setMessages((prev) => [...prev, { role: "error", text: message }])
+  );
+  const recording = recorder.state === "recording";
+  const composerLocked = loading || pendingDeletions.length > 0 || transcribing;
+
   const handleSend = async () => {
     const text = prompt.trim();
     // A pending deletion must be resolved by the buttons; letting a message
     // through here is how a typed "yes" turned into a fresh request that
     // then couldn't find the already-deleted card.
-    if (!text || loading || pendingDeletions.length > 0) return;
+    if (!text || loading || pendingDeletions.length > 0 || transcribing || recording) return;
 
     if (!WORKER_URL) {
       setMessages((prev) => [
@@ -174,7 +275,15 @@ export function AgentChat() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ prompt: text, board, boards, history, model }),
+        body: JSON.stringify({
+          prompt: text,
+          board,
+          boards,
+          history,
+          model,
+          today: localToday(),
+          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        }),
       });
 
       // Đọc body cả khi lỗi: Worker trả lý do cụ thể (vd chưa cấu hình key cho
@@ -209,7 +318,8 @@ export function AgentChat() {
           applied.push(action);
         }
       }
-      applied.forEach((action) => dispatch(action));
+      // Cả câu trả lời là MỘT bước hoàn tác: Ctrl+Z gỡ hết những gì trợ lý vừa làm.
+      dispatchBatch(applied);
 
       // When the turn is nothing but deletions, the agent's reply only restates
       // what the confirmation panel already spells out — and phrases it as a
@@ -226,6 +336,7 @@ export function AgentChat() {
           ? [
               {
                 role: "system" as const,
+                awaitingConfirm: true,
                 text: `Đang chờ bạn bấm nút xác nhận để xóa ${deletions
                   .filter(isDestructiveAction)
                   .map((a) => describeDestructiveAction(a, board, boards).replace(/^Xóa /, ""))
@@ -260,7 +371,7 @@ export function AgentChat() {
     // re-validate against the board as it stands now rather than as it looked
     // when the agent proposed these.
     const { actions: stillValid } = sanitizeAgentActions(pendingDeletions, board, boards);
-    stillValid.forEach((action) => dispatch(action));
+    dispatchBatch(stillValid);
     // stillValid can carry board switches needed to reach the target, so count
     // only the deletions themselves.
     const deletedCount = stillValid.filter(isDestructiveAction).length;
@@ -269,7 +380,10 @@ export function AgentChat() {
       ...prev,
       {
         role: "agent",
-        text: deletedCount > 0 ? `Đã xóa (${deletedCount} mục).` : "Không còn mục nào để xóa.",
+        text:
+          deletedCount > 0
+            ? `Đã xóa (${deletedCount} mục). Bấm Ctrl+Z (⌘Z) nếu muốn khôi phục.`
+            : "Không còn mục nào để xóa.",
       },
     ]);
   };
@@ -500,7 +614,7 @@ export function AgentChat() {
                   ))}
                 </ul>
                 <p className="text-xs text-red-600/80 dark:text-red-400/80">
-                  Hành động này không thể hoàn tác.
+                  Lỡ tay vẫn khôi phục được bằng Ctrl+Z (⌘Z), trước khi tải lại trang.
                 </p>
                 <div className="flex gap-2 pt-0.5">
                   <button
@@ -525,28 +639,72 @@ export function AgentChat() {
           <div className="p-3 border-t border-gray-100 dark:border-gray-800 flex gap-2 items-end">
             <textarea
               ref={inputRef}
+              readOnly={recording}
               rows={1}
               className="flex-1 text-sm rounded-lg border border-orange-400 dark:border-orange-400 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 px-2.5 py-1.5 focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100 dark:focus:ring-orange-900/40 disabled:border-gray-200 dark:disabled:border-gray-700 resize-none leading-5"
               placeholder={
                 pendingDeletions.length > 0
                   ? "Bấm Xóa hoặc Hủy ở trên để tiếp tục..."
-                  : "Nhập yêu cầu..."
+                  : recording
+                    ? "Đang nghe... bấm ■ khi nói xong"
+                    : transcribing
+                      ? "Đang chuyển giọng nói thành chữ..."
+                      : "Nhập yêu cầu hoặc bấm 🎤 để nói..."
               }
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               onKeyDown={(e) => {
+                // Ô trống thì Ctrl+Z hoàn tác thao tác trên board (vd việc trợ
+                // lý vừa làm) — đang có chữ thì để trình duyệt hoàn tác chữ.
+                if ((e.ctrlKey || e.metaKey) && !e.altKey && prompt === "") {
+                  const key = e.key.toLowerCase();
+                  if (key === "z" && !e.shiftKey) {
+                    e.preventDefault();
+                    undo();
+                    return;
+                  }
+                  if ((key === "z" && e.shiftKey) || key === "y") {
+                    e.preventDefault();
+                    redo();
+                    return;
+                  }
+                }
                 // Enter sends; Shift+Enter starts a new line.
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
                   handleSend();
                 }
               }}
-              disabled={loading || pendingDeletions.length > 0}
+              disabled={composerLocked}
             />
+            {recorder.state !== "unsupported" && (
+              <button
+                type="button"
+                onClick={recording ? recorder.stop : () => void recorder.start()}
+                disabled={composerLocked}
+                title={recording ? "Dừng ghi âm" : "Nói yêu cầu bằng giọng nói"}
+                aria-label={recording ? "Dừng ghi âm" : "Nói yêu cầu bằng giọng nói"}
+                aria-pressed={recording}
+                // Tĩnh, không nhấp nháy: animation trên app chỉ dành cho thẻ
+                // quá hạn và nút 🤖 (xem CLAUDE.md). Đồng hồ đếm giây là đủ
+                // cho biết đang ghi.
+                className={`px-2.5 py-1.5 text-sm rounded-md shrink-0 tabular-nums disabled:opacity-50 ${
+                  recording
+                    ? "bg-orange-500 text-white"
+                    : "border border-orange-400 text-orange-500 hover:bg-orange-50 dark:hover:bg-gray-800"
+                }`}
+              >
+                {recording
+                  ? `■ 0:${String(recorder.seconds).padStart(2, "0")}`
+                  : transcribing
+                    ? "…"
+                    : "🎤"}
+              </button>
+            )}
             <button
               type="button"
               onClick={handleSend}
-              disabled={loading || pendingDeletions.length > 0}
+              disabled={composerLocked || recording}
               className="px-3 py-1.5 text-sm rounded-md bg-orange-400 text-white hover:bg-orange-500 disabled:opacity-50 shrink-0"
             >
               Gửi

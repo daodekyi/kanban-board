@@ -98,4 +98,29 @@ describe("appReducer", () => {
     expect(next.boards).toEqual(remoteBoards);
     expect(next.activeBoardId).toBe(remoteBoards[0].id);
   });
+
+  it("addBoard honours a preset board id and custom columns", () => {
+    const state = createDefaultAppState();
+    const next = appReducer(state, {
+      type: "addBoard",
+      title: "Đà Lạt",
+      boardId: "board-preset",
+      columns: [
+        { id: "c1", title: "Cần làm" },
+        { id: "c2", title: "Xong", isDone: true },
+      ],
+    });
+    const board = next.boards[1];
+    expect(board.id).toBe("board-preset");
+    expect(next.activeBoardId).toBe("board-preset");
+    expect(board.columns.map((c) => [c.id, c.title, c.order, c.isDone])).toEqual([
+      ["c1", "Cần làm", 0, false],
+      ["c2", "Xong", 1, true],
+    ]);
+  });
+
+  it("addBoard falls back to the default columns when given an empty list", () => {
+    const next = appReducer(createDefaultAppState(), { type: "addBoard", title: "X", columns: [] });
+    expect(next.boards[1].columns).toHaveLength(4);
+  });
 });

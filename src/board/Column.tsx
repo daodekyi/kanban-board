@@ -9,10 +9,15 @@ import { splitLeadingNumber } from "./columnTitle";
 
 export function ColumnView({
   column,
+  index,
+  columnCount,
   searchQuery = "",
   assigneeFilter = null,
 }: {
   column: Column;
+  /** Vị trí hiển thị (0 = trái cùng) và tổng số cột, cho nút đổi vị trí. */
+  index: number;
+  columnCount: number;
   searchQuery?: string;
   assigneeFilter?: string | null;
 }) {
@@ -61,10 +66,14 @@ export function ColumnView({
     // is easy to hit by accident, and deleting a card always asks regardless.
     const message =
       column.cards.length > 0
-        ? `Cột "${column.title}" có ${column.cards.length} thẻ. Xóa cột sẽ xóa luôn các thẻ này. Hành động này không thể hoàn tác.`
-        : `Xóa cột "${column.title}"? Hành động này không thể hoàn tác.`;
+        ? `Cột "${column.title}" có ${column.cards.length} thẻ. Xóa cột sẽ xóa luôn các thẻ này. Lỡ tay vẫn khôi phục được bằng Ctrl+Z (⌘Z).`
+        : `Xóa cột "${column.title}"? Lỡ tay vẫn khôi phục được bằng Ctrl+Z (⌘Z).`;
     if (!window.confirm(message)) return;
     dispatch({ type: "removeColumn", columnId: column.id });
+  };
+
+  const handleMove = (toIndex: number) => {
+    dispatch({ type: "moveColumn", columnId: column.id, toIndex });
   };
 
   const handleToggleDone = () => {
@@ -89,7 +98,7 @@ export function ColumnView({
   };
 
   return (
-    <div className="bg-gray-50 dark:bg-gray-800/60 border border-gray-200/70 dark:border-gray-800 rounded-xl w-72 flex-shrink-0 flex flex-col max-h-full">
+    <div className="group/column bg-gray-50 dark:bg-gray-800/60 border border-gray-200/70 dark:border-gray-800 rounded-xl w-72 flex-shrink-0 flex flex-col max-h-full">
       <div className="flex items-center justify-between px-3.5 py-3 border-b border-gray-200/70 dark:border-gray-800">
         {editingTitle ? (
           <input
@@ -127,6 +136,28 @@ export function ColumnView({
           </div>
         )}
         <div className="flex items-center gap-0.5 shrink-0">
+          {/* Chỉ hiện khi rê chuột vào cột: đổi vị trí cột ít dùng, không nên
+              chiếm chỗ thường trực trên header vốn đã chật. */}
+          <button
+            type="button"
+            onClick={() => handleMove(index - 1)}
+            disabled={index === 0}
+            title="Chuyển cột sang trái"
+            aria-label="Chuyển cột sang trái"
+            className="w-6 h-6 rounded-md flex items-center justify-center text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 text-sm transition-opacity opacity-0 group-hover/column:opacity-100 focus:opacity-100 disabled:invisible"
+          >
+            ‹
+          </button>
+          <button
+            type="button"
+            onClick={() => handleMove(index + 1)}
+            disabled={index === columnCount - 1}
+            title="Chuyển cột sang phải"
+            aria-label="Chuyển cột sang phải"
+            className="w-6 h-6 rounded-md flex items-center justify-center text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 text-sm transition-opacity opacity-0 group-hover/column:opacity-100 focus:opacity-100 disabled:invisible"
+          >
+            ›
+          </button>
           <button
             type="button"
             onClick={handleToggleDone}

@@ -3,6 +3,8 @@ import OpenAI from "openai";
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { bearerToken, verifyUser } from "./auth";
+import { describeToday } from "./today";
+import { cleanKeywords, transcribe } from "./transcribe";
 import { d1Runner, loadRows, syncRows } from "./data";
 
 export interface Env {
@@ -123,12 +125,20 @@ const PatchFieldSchema = z.discriminatedUnion("field", [
   z.object({ field: z.literal("priority"), value: z.enum(["low", "medium", "high"]) }),
   z.object({ field: z.literal("assignee"), value: z.string() }),
   z.object({ field: z.literal("subtasks"), value: z.array(SubtaskSchema) }),
+  // Xóa hẳn giá trị của một field tùy chọn. Đây là mục riêng chứ không phải
+  // value rỗng, vì "" / "." là đúng loại giá trị giữ chỗ từng xóa nhầm dữ liệu.
+  z.object({ field: z.literal("clear"), value: z.enum(["description", "dueDate", "assignee"]) }),
 ]);
 
+// `ref` là id tạm do trợ lý tự đặt cho board/cột mới, để các action phía sau
+// trong CÙNG lượt trỏ tới được (id thật do frontend cấp — xem agentActions.ts).
+const NewColumnSchema = z.object({ title: z.string(), ref: z.string(), isDone: z.boolean() });
+
 const ActionSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("addColumn"), title: z.string() }),
+  z.object({ type: z.literal("addColumn"), title: z.string(), ref: z.string() }),
   z.object({ type: z.literal("removeColumn"), columnId: z.string() }),
   z.object({ type: z.literal("renameColumn"), columnId: z.string(), title: z.string() }),
+  z.object({ type: z.literal("moveColumn"), columnId: z.string(), toIndex: z.number() }),
   z.object({
     type: z.literal("addCard"),
     columnId: z.string(),
@@ -152,7 +162,12 @@ const ActionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("setColumnDone"), columnId: z.string(), isDone: z.boolean() }),
   z.object({ type: z.literal("setWipLimit"), columnId: z.string(), wipLimit: z.number() }),
   z.object({ type: z.literal("clearWipLimit"), columnId: z.string() }),
-  z.object({ type: z.literal("addBoard"), title: z.string() }),
+  z.object({
+    type: z.literal("addBoard"),
+    title: z.string(),
+    ref: z.string(),
+    columns: z.array(NewColumnSchema),
+  }),
   z.object({ type: z.literal("renameBoard"), boardId: z.string(), title: z.string() }),
   z.object({ type: z.literal("removeBoard"), boardId: z.string() }),
   z.object({ type: z.literal("switchBoard"), boardId: z.string() }),
@@ -265,6 +280,11 @@ Quy tắc bắt buộc:
 - "patch" là MẢNG các mục {field, value}, CHỈ liệt kê những field thật sự cần thay đổi. Không cần thay field nào thì để mảng rỗng []. TUYỆT ĐỐI KHÔNG thêm mục cho field mà người dùng không yêu cầu đổi, và không bao giờ dùng giá trị giữ chỗ như "." hay "" — làm vậy sẽ ghi đè mất dữ liệu thật của người dùng.
 - Khi thêm/sửa/xóa subtask của một card đã có sẵn subtasks, value của field "subtasks" phải là TOÀN BỘ danh sách subtask sau khi thay đổi (giữ nguyên id các subtask cũ không đổi, subtask mới có thể dùng id tạm bất kỳ vì hệ thống sẽ tự cấp lại id thật).
 - "dueDate" phải đúng định dạng YYYY-MM-DD (ví dụ 2026-08-30). Nếu không xác định được ngày cụ thể từ yêu cầu, đừng thêm field dueDate vào patch.
+- Dòng đầu tin nhắn cho biết HÔM NAY là ngày nào. Dùng nó để quy đổi ngày tương đối ("hôm nay", "ngày mai", "thứ Sáu tuần này", "tuần sau", "cuối tháng") ra YYYY-MM-DD, và để trả lời câu hỏi về thẻ quá hạn/sắp đến hạn. "Thứ X tuần này" là ngày thứ X trong tuần hiện tại (tuần bắt đầu từ thứ Hai); nếu ngày đó đã qua thì hỏi lại thay vì tự chọn tuần sau. Khi đặt hạn bằng ngày tương đối, nêu rõ ngày cụ thể trong "reply" (ví dụ "hạn thứ Sáu 16/10").
+- Muốn BỎ hẳn mô tả, hạn chót hoặc người phụ trách của thẻ, dùng mục {"field":"clear","value":"description"|"dueDate"|"assignee"}. Không bao giờ dùng chuỗi rỗng để xóa. Muốn bỏ hết nhãn hoặc việc con thì gửi mảng rỗng cho "labels"/"subtasks".
+- Board/cột MỚI chưa có id thật. Khi tạo, tự đặt cho mỗi board/cột một "ref" ngắn, duy nhất trong lượt trả lời (ví dụ "b-dalat", "c-cantlam"); các action PHÍA SAU trong cùng lượt dùng chính ref đó làm boardId/columnId. Nhờ vậy làm được nhiều bước trong một câu, ví dụ "tạo board Du lịch Đà Lạt và thêm 3 việc cần chuẩn bị".
+- Khi addBoard: "columns" là danh sách cột của board mới theo thứ tự, mỗi cột có title, ref, isDone (true cho cột hoàn thành). Người dùng không nói cột nào thì dùng 4 cột mặc định: "1. To Do", "2. In Progress", "3. Review", "4. Done" (chỉ "4. Done" có isDone = true). addBoard tự mở board mới, nên thẻ thêm vào board mới không cần switchBoard.
+- Đổi vị trí cột bằng {"type":"moveColumn","columnId":...,"toIndex":...} với toIndex tính từ 0 theo thứ tự cột từ trái sang phải. Thẻ chỉ chuyển được giữa các cột trong CÙNG một board; nếu người dùng muốn chuyển thẻ sang board khác thì nói rõ là chưa làm được, đừng tự xóa rồi tạo lại.
 - Nếu yêu cầu chỉ là câu hỏi hoặc cần tóm tắt/phân tích board (không cần thay đổi dữ liệu), trả lời đầy đủ trong "reply" và để "actions" là mảng rỗng.
 - Nếu yêu cầu không đủ rõ ràng (ví dụ không rõ thêm thẻ vào cột nào, giao cho ai), hỏi lại trong "reply" một cách cụ thể và để "actions" rỗng — không được đoán bừa.
 - Dựa vào lịch sử hội thoại phía trên để hiểu các yêu cầu nối tiếp: khi người dùng nói "task này", "thẻ vừa tạo", "nó"..., hãy hiểu là thẻ/cột được nhắc tới gần nhất trong hội thoại; chỉ hỏi lại khi thật sự không suy ra được.
@@ -296,9 +316,39 @@ export default {
       });
     }
 
+    const { pathname } = new URL(request.url);
+
+    // Giọng nói → chữ. Cần đăng nhập như /, vì mỗi lần gọi tốn tiền OpenAI.
+    if (pathname === "/transcribe") {
+      if (request.method !== "POST") return jsonResponse({ error: "Method not allowed" }, 405);
+      const userId = await verifyUser(bearerToken(request), env);
+      if (!userId) return jsonResponse({ error: "Unauthorized" }, 401);
+      let form: FormData;
+      try {
+        form = await request.formData();
+      } catch {
+        return jsonResponse({ error: "Invalid form data" }, 400);
+      }
+      // workers-types khai báo get() chỉ trả string; thực tế field file là File.
+      const audio = form.get("audio") as unknown;
+      if (!(audio instanceof Blob)) return jsonResponse({ error: "Thiếu file âm thanh." }, 400);
+      let keywords: unknown = [];
+      try {
+        keywords = JSON.parse(String(form.get("keywords") ?? "[]"));
+      } catch {
+        /* keyword chỉ là gợi ý — hỏng thì bỏ qua */
+      }
+      try {
+        const result = await transcribe(env.OPENAI_API_KEY, audio, cleanKeywords(keywords));
+        return result.ok ? jsonResponse({ text: result.text }) : jsonResponse({ error: result.error }, result.status);
+      } catch (err) {
+        console.error("Transcribe crashed", err);
+        return jsonResponse({ error: "Không nhận dạng được giọng nói lúc này." }, 500);
+      }
+    }
+
     // Dữ liệu board. Xác thực TRƯỚC khi đọc body; userId từ token là owner_id
     // duy nhất được dùng trong SQL (xem worker/src/data.ts).
-    const { pathname } = new URL(request.url);
     if (pathname === "/data" || pathname === "/data/sync") {
       const userId = await verifyUser(bearerToken(request), env);
       if (!userId) return jsonResponse({ error: "Unauthorized" }, 401);
@@ -339,6 +389,9 @@ export default {
       board?: unknown;
       boards?: unknown;
       history?: { role?: string; text?: string }[];
+      /** Ngày hôm nay theo giờ trình duyệt, YYYY-MM-DD. */
+      today?: string;
+      timeZone?: string;
     };
     try {
       body = (await request.json()) as typeof body;
@@ -385,7 +438,8 @@ export default {
       ? `Lịch sử hội thoại trước đó:\n${lines.join("\n")}\n\n`
       : "";
 
-    const userMessage = `Dữ liệu board hiện tại:\n${contextJson}\n\n${historyBlock}Yêu cầu người dùng: ${prompt}`;
+    const todayLine = describeToday(body.today, body.timeZone);
+    const userMessage = `${todayLine}\n\nDữ liệu board hiện tại:\n${contextJson}\n\n${historyBlock}Yêu cầu người dùng: ${prompt}`;
 
     try {
       if (config.transport === "anthropic") {

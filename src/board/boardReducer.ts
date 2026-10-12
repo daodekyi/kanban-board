@@ -16,10 +16,13 @@ export function createDefaultBoard(title = "Kanban Board"): Board {
 export function boardReducer(state: Board, action: BoardAction): Board {
   switch (action.type) {
     case "addColumn": {
+      // max+1 chứ không phải length: sau khi xóa một cột, length có thể trùng
+      // order của cột đang có và hai cột sẽ tranh nhau vị trí khi sắp xếp.
+      const order = state.columns.reduce((max, c) => Math.max(max, c.order + 1), 0);
       const column: Column = {
-        id: uuidv4(),
+        id: action.columnId ?? uuidv4(),
         title: action.title,
-        order: state.columns.length,
+        order,
         cards: [],
       };
       return { ...state, columns: [...state.columns, column] };
@@ -123,6 +126,16 @@ export function boardReducer(state: Board, action: BoardAction): Board {
           return c;
         }),
       };
+    }
+
+    case "moveColumn": {
+      const sorted = state.columns.slice().sort((a, b) => a.order - b.order);
+      const from = sorted.findIndex((c) => c.id === action.columnId);
+      if (from === -1) return state;
+      const [moving] = sorted.splice(from, 1);
+      const to = Math.max(0, Math.min(action.toIndex, sorted.length));
+      sorted.splice(to, 0, moving);
+      return { ...state, columns: sorted.map((c, i) => ({ ...c, order: i })) };
     }
 
     case "setColumnDone": {

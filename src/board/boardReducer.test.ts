@@ -193,4 +193,45 @@ describe("boardReducer", () => {
     const cleared = boardReducer(withLimit, { type: "setWipLimit", columnId, wipLimit: undefined });
     expect(cleared.columns[0].wipLimit).toBeUndefined();
   });
+
+  it("addColumn uses a preset columnId when one is given", () => {
+    const board = createDefaultBoard();
+    const next = boardReducer(board, { type: "addColumn", title: "Backlog", columnId: "col-preset" });
+    expect(next.columns[4].id).toBe("col-preset");
+  });
+
+  it("addColumn orders after the highest existing order even after a removal", () => {
+    const board = createDefaultBoard();
+    const removed = boardReducer(board, { type: "removeColumn", columnId: board.columns[1].id });
+    const next = boardReducer(removed, { type: "addColumn", title: "Mới" });
+    const orders = next.columns.map((c) => c.order);
+    expect(new Set(orders).size).toBe(orders.length);
+    expect(next.columns[next.columns.length - 1].order).toBe(4);
+  });
+
+  it("moveColumn moves a column to a new position and renumbers order", () => {
+    const board = createDefaultBoard();
+    const doneId = board.columns[3].id;
+    const next = boardReducer(board, { type: "moveColumn", columnId: doneId, toIndex: 0 });
+    expect(next.columns.map((c) => c.title)).toEqual([
+      "4. Done",
+      "1. To Do",
+      "2. In Progress",
+      "3. Review",
+    ]);
+    expect(next.columns.map((c) => c.order)).toEqual([0, 1, 2, 3]);
+  });
+
+  it("moveColumn clamps an out-of-range index and keeps the cards", () => {
+    const board = boardWithOneCard();
+    const firstId = board.columns[0].id;
+    const next = boardReducer(board, { type: "moveColumn", columnId: firstId, toIndex: 99 });
+    expect(next.columns[3].id).toBe(firstId);
+    expect(next.columns[3].cards).toHaveLength(1);
+  });
+
+  it("moveColumn ignores an unknown column", () => {
+    const board = createDefaultBoard();
+    expect(boardReducer(board, { type: "moveColumn", columnId: "nope", toIndex: 0 })).toBe(board);
+  });
 });

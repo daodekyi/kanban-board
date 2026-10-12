@@ -7,7 +7,16 @@ export interface AppState {
 }
 
 export type BoardListAction =
-  | { type: "addBoard"; title: string }
+  /**
+   * `boardId`/`columns` đặt trước được để trợ lý AI tạo board rồi thêm thẻ vào
+   * nó ngay trong cùng lượt (cần biết id trước). Bỏ trống thì dùng 4 cột mặc định.
+   */
+  | {
+      type: "addBoard";
+      title: string;
+      boardId?: string;
+      columns?: { id: string; title: string; isDone?: boolean }[];
+    }
   | { type: "renameBoard"; boardId: string; title: string }
   | { type: "removeBoard"; boardId: string }
   | { type: "switchBoard"; boardId: string }
@@ -57,7 +66,21 @@ export function appReducer(state: AppState, action: AppAction): AppState {
   if (isBoardListAction(action)) {
     switch (action.type) {
       case "addBoard": {
-        const board = createDefaultBoard(action.title);
+        const base = createDefaultBoard(action.title);
+        const board = {
+          ...base,
+          id: action.boardId ?? base.id,
+          columns:
+            action.columns && action.columns.length > 0
+              ? action.columns.map((c, i) => ({
+                  id: c.id,
+                  title: c.title,
+                  order: i,
+                  cards: [],
+                  isDone: c.isDone ?? false,
+                }))
+              : base.columns,
+        };
         return {
           boards: [...state.boards, board],
           activeBoardId: board.id,

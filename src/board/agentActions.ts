@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from "uuid";
-import type { AppAction } from "./appReducer";
+import { appReducer, type AppAction, type AppState } from "./appReducer";
 import type { Board, Card, Priority, Subtask } from "../types";
 
 type CardPatch = Partial<Omit<Card, "id">>;
@@ -16,6 +16,8 @@ type RawAgentAction = Omit<Extract<AppAction, { type: "addCard" | "updateCard" }
 };
 
 const PRIORITIES: Priority[] = ["low", "medium", "high"];
+/** Field xóa được giá trị qua mục `{field: "clear", value: <tên field>}`. */
+const CLEARABLE_FIELDS = ["description", "dueDate", "assignee"] as const;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
@@ -25,6 +27,10 @@ const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
  */
 function isPlaceholderText(value: string): boolean {
   return !/[\p{L}\p{N}]/u.test(value);
+}
+
+function hasText(value: unknown): value is string {
+  return typeof value === "string" && value.trim() !== "" && !isPlaceholderText(value.trim());
 }
 
 function normalizeSubtasks(value: unknown, existing: Subtask[] = []): Subtask[] {
@@ -84,6 +90,15 @@ function buildPatch(rawPatch: unknown, existingSubtasks: Subtask[] = []): CardPa
         patch.subtasks = normalizeSubtasks(value, existingSubtasks);
         break;
       }
+      // Xóa giá trị là một mục riêng, nêu đích danh field cần xóa — không
+      // dùng chuỗi rỗng, vì chuỗi rỗng/"." chính là giá trị giữ chỗ từng xóa
+      // nhầm dữ liệu thật và vẫn bị loại ở trên.
+      case "clear": {
+        if ((CLEARABLE_FIELDS as readonly string[]).includes(value as string)) {
+          patch[value as (typeof CLEARABLE_FIELDS)[number]] = undefined;
+        }
+        break;
+      }
     }
   }
 
@@ -100,6 +115,7 @@ export function targetBoardOf(action: AppAction, boards: Board[]): Board | undef
   switch (action.type) {
     case "removeColumn":
     case "renameColumn":
+    case "moveColumn":
     case "setColumnDone":
     case "setWipLimit":
     case "addCard":
@@ -133,15 +149,30 @@ export function sanitizeAgentAction(
 
   switch (action.type) {
     case "addColumn":
-      return action.title?.trim() ? action : null;
+      return hasText(action.title) ? { ...action, title: action.title.trim() } : null;
 
     case "removeColumn":
-    case "renameColumn":
     case "setColumnDone":
       return findColumn(action.columnId) ? action : null;
 
-    case "setWipLimit":
-      return findColumn(action.columnId) ? action : null;
+    case "renameColumn":
+      return findColumn(action.columnId) && hasText(action.title)
+        ? { ...action, title: action.title.trim() }
+        : null;
+
+    case "moveColumn": {
+      if (!findColumn(action.columnId) || typeof action.toIndex !== "number") return null;
+      const toIndex = Math.max(0, Math.min(Math.floor(action.toIndex), board.columns.length - 1));
+      return { ...action, toIndex };
+    }
+
+    case "setWipLimit": {
+      if (!findColumn(action.columnId)) return null;
+      if (action.wipLimit === undefined) return action;
+      // Cùng luật với ô nhập tay ở Column.tsx: số dương, làm tròn xuống.
+      if (!Number.isFinite(action.wipLimit) || action.wipLimit < 1) return null;
+      return { ...action, wipLimit: Math.floor(action.wipLimit) };
+    }
 
     case "addCard": {
       if (!findColumn(action.columnId) || !action.title?.trim()) return null;
@@ -171,11 +202,26 @@ export function sanitizeAgentAction(
       return { ...action, toIndex };
     }
 
-    case "addBoard":
-      return action.title?.trim() ? action : null;
+    case "addBoard": {
+      if (!hasText(action.title)) return null;
+      const columns = (action.columns ?? []).filter((c) => hasText(c.title));
+      return {
+        ...action,
+        title: action.title.trim(),
+        columns: columns.map((c) => ({ ...c, title: c.title.trim() })),
+      };
+    }
 
     case "renameBoard":
+      return boards.some((b) => b.id === action.boardId) && hasText(action.title)
+        ? { ...action, title: action.title.trim() }
+        : null;
+
     case "removeBoard":
+      // Reducer không cho xóa board cuối cùng; để lọt qua thì chat sẽ báo
+      // "đã xóa" trong khi thật ra không có gì xảy ra.
+      return boards.length > 1 && boards.some((b) => b.id === action.boardId) ? action : null;
+
     case "switchBoard":
       return boards.some((b) => b.id === action.boardId) ? action : null;
 
@@ -232,6 +278,55 @@ export interface SanitizedActions {
   dropped: number;
 }
 
+/** Các field chứa id mà trợ lý có thể điền bằng `ref` tạm của board/cột vừa tạo. */
+const ID_FIELDS = ["boardId", "columnId", "fromColumnId", "toColumnId"] as const;
+
+/**
+ * Chuyển một action thô của trợ lý về đúng dạng reducer hiểu:
+ * - `clearWipLimit` (chỉ có trong từ vựng của trợ lý) → `setWipLimit` undefined;
+ * - board/cột mới được cấp sẵn UUID thật, và `ref` tạm của chúng được ghi vào
+ *   `refs` để các action phía sau trong cùng lượt trỏ tới được;
+ * - mọi field id đang chứa một `ref` đã biết được thay bằng UUID thật.
+ */
+function normalizeAgentAction(raw: AppAction, refs: Map<string, string>): AppAction {
+  const r = raw as unknown as Record<string, unknown>;
+  let action: Record<string, unknown> =
+    r.type === "clearWipLimit"
+      ? { type: "setWipLimit", columnId: r.columnId, wipLimit: undefined }
+      : { ...r };
+
+  const resolve = (value: unknown) => (typeof value === "string" ? (refs.get(value) ?? value) : value);
+  for (const field of ID_FIELDS) {
+    if (field in action) action[field] = resolve(action[field]);
+  }
+
+  const register = (ref: unknown): string => {
+    const id = uuidv4();
+    if (typeof ref === "string" && ref.trim() !== "") refs.set(ref, id);
+    return id;
+  };
+
+  if (action.type === "addColumn") {
+    const { ref, ...rest } = action;
+    action = { ...rest, columnId: register(ref) };
+  } else if (action.type === "addBoard") {
+    const { ref, columns, ...rest } = action;
+    action = {
+      ...rest,
+      boardId: register(ref),
+      columns: (Array.isArray(columns) ? columns : [])
+        .filter((c): c is Record<string, unknown> => !!c && typeof c === "object")
+        .map((c) => ({
+          id: register(c.ref),
+          title: typeof c.title === "string" ? c.title : "",
+          isDone: !!c.isDone,
+        })),
+    };
+  }
+
+  return action as unknown as AppAction;
+}
+
 export function sanitizeAgentActions(
   actions: AppAction[],
   board: Board,
@@ -239,39 +334,36 @@ export function sanitizeAgentActions(
 ): SanitizedActions {
   const result: AppAction[] = [];
   let dropped = 0;
-  // The reducer applies column/card actions to whichever board is active, so
-  // acting on another board means switching to it first. Tracked across the
-  // batch so consecutive actions on the same board only switch once.
-  let activeId = board.id;
+  const refs = new Map<string, string>();
+  // Bản nháp chạy qua chính appReducer, để action sau được kiểm tra trên board
+  // ĐÃ chịu ảnh hưởng của action trước (cột/board vừa tạo, board đang mở sau
+  // khi addBoard tự chuyển sang board mới...). Trước đây chỉ theo dõi id board
+  // đang mở bằng tay nên bỏ sót addBoard, và thẻ thêm sau đó rơi vào board mới
+  // rồi biến mất không báo.
+  let draft: AppState = { boards, activeBoardId: board.id };
 
   for (const raw of actions) {
-    // clearWipLimit exists only in the agent's vocabulary — the reducer clears
-    // a limit by setting it to undefined, which the agent schema can't express.
-    const action =
-      (raw as { type: string }).type === "clearWipLimit"
-        ? ({
-            type: "setWipLimit",
-            columnId: (raw as unknown as { columnId: string }).columnId,
-            wipLimit: undefined,
-          } as AppAction)
-        : raw;
+    const action = normalizeAgentAction(raw, refs);
+    const owner = targetBoardOf(action, draft.boards);
+    const active = draft.boards.find((b) => b.id === draft.activeBoardId) ?? board;
+    const context = owner ?? active;
 
-    const owner = targetBoardOf(action, boards);
-    const context = owner ?? boards.find((b) => b.id === activeId) ?? board;
-
-    const sanitized = sanitizeAgentAction(action, context, boards);
+    const sanitized = sanitizeAgentAction(action, context, draft.boards);
     if (!sanitized) {
       dropped++;
       continue;
     }
 
-    if (owner && owner.id !== activeId) {
-      result.push({ type: "switchBoard", boardId: owner.id });
-      activeId = owner.id;
-    }
-    if (sanitized.type === "switchBoard") activeId = sanitized.boardId;
-
+    const needsSwitch = owner !== undefined && owner.id !== draft.activeBoardId;
+    if (needsSwitch) result.push({ type: "switchBoard", boardId: owner.id });
     result.push(sanitized);
+
+    // Thao tác xóa chờ người dùng xác nhận (cùng lệnh switchBoard dẫn tới nó —
+    // xem AgentChat), nên chưa được phản ánh vào bản nháp: các action chạy
+    // ngay phía sau phải thấy đúng trạng thái sẽ có khi chúng chạy.
+    if (isDestructiveAction(sanitized)) continue;
+    if (needsSwitch) draft = appReducer(draft, { type: "switchBoard", boardId: owner.id });
+    draft = appReducer(draft, sanitized);
   }
 
   return { actions: result, dropped };

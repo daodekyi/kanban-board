@@ -67,7 +67,7 @@ export function CardModal({
   };
 
   const handleDelete = () => {
-    const confirmed = window.confirm(`Xóa thẻ "${card.title}"? Hành động này không thể hoàn tác.`);
+    const confirmed = window.confirm(`Xóa thẻ "${card.title}"? Lỡ tay vẫn khôi phục được bằng Ctrl+Z (⌘Z).`);
     if (!confirmed) return;
     dispatch({ type: "removeCard", columnId, cardId: card.id });
     onClose();

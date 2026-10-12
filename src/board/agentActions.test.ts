@@ -268,3 +268,161 @@ describe("sanitizeAgentActions", () => {
     expect((action as Extract<AppAction, { type: "moveCard" }>).toIndex).toBe(1);
   });
 });
+
+describe("sanitizeAgentActions — nhiều bước trong một lượt", () => {
+  it("lets cards target a board created earlier in the same reply via its ref", () => {
+    const active = makeBoard();
+    const { actions, dropped } = sanitizeAgentActions(
+      [
+        {
+          type: "addBoard",
+          title: "Du lịch Đà Lạt",
+          ref: "b-dalat",
+          columns: [
+            { title: "Cần làm", ref: "c-todo", isDone: false },
+            { title: "Xong", ref: "c-done", isDone: true },
+          ],
+        },
+        { type: "addCard", columnId: "c-todo", title: "Đặt vé", patch: [] },
+        { type: "addCard", columnId: "c-todo", title: "Đặt phòng", patch: [] },
+      ] as unknown as AppAction[],
+      active,
+      [active]
+    );
+
+    expect(dropped).toBe(0);
+    const add = actions[0] as Extract<AppAction, { type: "addBoard" }>;
+    const todoId = add.columns![0].id;
+    expect(add.boardId).toBeTruthy();
+    expect(todoId).not.toBe("c-todo");
+    expect(add.columns!.map((c) => [c.title, c.isDone])).toEqual([
+      ["Cần làm", false],
+      ["Xong", true],
+    ]);
+    // addBoard đã tự mở board mới, nên không cần switchBoard chen vào.
+    expect(actions.slice(1)).toEqual([
+      { type: "addCard", columnId: todoId, title: "Đặt vé", patch: {} },
+      { type: "addCard", columnId: todoId, title: "Đặt phòng", patch: {} },
+    ]);
+  });
+
+  it("switches back before touching the old board after creating a new one", () => {
+    const active = makeBoard();
+    const { actions } = sanitizeAgentActions(
+      [
+        { type: "addBoard", title: "Mới", ref: "b1", columns: [] },
+        { type: "addCard", columnId: COLUMN_ID, title: "Thẻ ở board cũ", patch: [] },
+      ] as unknown as AppAction[],
+      active,
+      [active]
+    );
+
+    expect(actions.map((a) => a.type)).toEqual(["addBoard", "switchBoard", "addCard"]);
+    expect(actions[1]).toEqual({ type: "switchBoard", boardId: BOARD_ID });
+  });
+
+  it("lets cards target a column created earlier in the same reply", () => {
+    const active = makeBoard();
+    const { actions, dropped } = sanitizeAgentActions(
+      [
+        { type: "addColumn", title: "Backlog", ref: "col-new" },
+        { type: "addCard", columnId: "col-new", title: "Ý tưởng", patch: [] },
+      ] as unknown as AppAction[],
+      active,
+      [active]
+    );
+
+    expect(dropped).toBe(0);
+    const columnId = (actions[0] as Extract<AppAction, { type: "addColumn" }>).columnId;
+    expect(columnId).toBeTruthy();
+    expect((actions[1] as Extract<AppAction, { type: "addCard" }>).columnId).toBe(columnId);
+  });
+
+  it("still drops a card aimed at a ref nobody created", () => {
+    const active = makeBoard();
+    const { actions, dropped } = sanitizeAgentActions(
+      [{ type: "addCard", columnId: "c-bia", title: "X", patch: [] }] as unknown as AppAction[],
+      active,
+      [active]
+    );
+    expect(actions).toEqual([]);
+    expect(dropped).toBe(1);
+  });
+
+  it("does not count a pending cross-board deletion as having switched boards", () => {
+    const active = makeBoard();
+    const other = makeOtherBoard();
+    const { actions } = sanitizeAgentActions(
+      [
+        { type: "removeColumn", columnId: OTHER_COLUMN_ID },
+        { type: "renameColumn", columnId: COLUMN_ID, title: "Việc cần làm" },
+      ],
+      active,
+      [active, other]
+    );
+
+    // switchBoard + removeColumn sẽ chờ xác nhận; renameColumn chạy ngay trên
+    // board đang mở nên không được chen thêm switchBoard nào.
+    expect(actions).toEqual([
+      { type: "switchBoard", boardId: OTHER_BOARD_ID },
+      { type: "removeColumn", columnId: OTHER_COLUMN_ID },
+      { type: "renameColumn", columnId: COLUMN_ID, title: "Việc cần làm" },
+    ]);
+  });
+});
+
+describe("sanitizeAgentActions — field và cột", () => {
+  it("clears a due date when asked explicitly", () => {
+    const [action] = sanitize({
+      type: "updateCard",
+      columnId: COLUMN_ID,
+      cardId: CARD_ID,
+      patch: [{ field: "clear", value: "dueDate" }],
+    });
+    const patch = (action as Extract<AppAction, { type: "updateCard" }>).patch;
+    expect("dueDate" in patch).toBe(true);
+    expect(patch.dueDate).toBeUndefined();
+  });
+
+  it("refuses to clear a field that must always have a value", () => {
+    const result = sanitize({
+      type: "updateCard",
+      columnId: COLUMN_ID,
+      cardId: CARD_ID,
+      patch: [
+        { field: "clear", value: "title" },
+        { field: "clear", value: "priority" },
+      ],
+    });
+    expect(result).toEqual([]);
+  });
+
+  it("clamps a column move to the existing columns", () => {
+    const board: Board = {
+      ...makeBoard(),
+      columns: [...makeBoard().columns, { id: "col-b", title: "Done", order: 1, cards: [] }],
+    };
+    const { actions } = sanitizeAgentActions(
+      [{ type: "moveColumn", columnId: COLUMN_ID, toIndex: 7 }],
+      board,
+      [board]
+    );
+    expect(actions).toEqual([{ type: "moveColumn", columnId: COLUMN_ID, toIndex: 1 }]);
+  });
+
+  it("drops removing the only board, which the reducer would ignore", () => {
+    expect(sanitize({ type: "removeBoard", boardId: BOARD_ID })).toEqual([]);
+  });
+
+  it("drops renames to an empty or placeholder title", () => {
+    expect(sanitize({ type: "renameColumn", columnId: COLUMN_ID, title: "." })).toEqual([]);
+    expect(sanitize({ type: "renameBoard", boardId: BOARD_ID, title: "  " })).toEqual([]);
+  });
+
+  it("applies the manual WIP rules: positive, rounded down", () => {
+    expect(sanitize({ type: "setWipLimit", columnId: COLUMN_ID, wipLimit: -2 })).toEqual([]);
+    expect(sanitize({ type: "setWipLimit", columnId: COLUMN_ID, wipLimit: 3.7 })).toEqual([
+      { type: "setWipLimit", columnId: COLUMN_ID, wipLimit: 3 },
+    ]);
+  });
+});

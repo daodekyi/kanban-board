@@ -688,10 +688,13 @@ export function AgentChat() {
                 // Tĩnh, không nhấp nháy: animation trên app chỉ dành cho thẻ
                 // quá hạn và nút 🤖 (xem CLAUDE.md). Đồng hồ đếm giây là đủ
                 // cho biết đang ghi.
-                className={`px-2.5 py-1.5 text-sm rounded-md shrink-0 tabular-nums disabled:opacity-50 ${
+                // Nền cam đặc, to hơn ô nhập: viền mảnh trước đây chìm hẳn,
+                // người dùng không thấy có nút nói. Lúc ghi đổi sang đỏ — quy
+                // ước "đang thu âm" quen thuộc, và chỉ nằm trong panel chat.
+                className={`h-10 min-w-10 px-2.5 flex items-center justify-center text-sm font-semibold rounded-full shrink-0 tabular-nums shadow-sm disabled:opacity-50 ${
                   recording
-                    ? "bg-orange-500 text-white"
-                    : "border border-orange-400 text-orange-500 hover:bg-orange-50 dark:hover:bg-gray-800"
+                    ? "bg-red-600 text-white"
+                    : "bg-orange-500 text-white hover:bg-orange-600 ring-2 ring-orange-200 dark:ring-orange-900/60"
                 }`}
               >
                 {recording ? (
@@ -705,11 +708,11 @@ export function AgentChat() {
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
-                    strokeWidth="2"
+                    strokeWidth="2.4"
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     aria-hidden="true"
-                    className="w-5 h-5"
+                    className="w-6 h-6"
                   >
                     <rect x="9" y="2" width="6" height="12" rx="3" />
                     <path d="M5 11a7 7 0 0 0 14 0" />

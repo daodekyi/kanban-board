@@ -649,7 +649,7 @@ export function AgentChat() {
                     ? "Đang nghe... bấm ■ khi nói xong"
                     : transcribing
                       ? "Đang chuyển giọng nói thành chữ..."
-                      : "Nhập yêu cầu hoặc bấm 🎤 để nói..."
+                      : "Nhập yêu cầu, hoặc bấm micro để nói..."
               }
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
@@ -694,11 +694,28 @@ export function AgentChat() {
                     : "border border-orange-400 text-orange-500 hover:bg-orange-50 dark:hover:bg-gray-800"
                 }`}
               >
-                {recording
-                  ? `■ 0:${String(recorder.seconds).padStart(2, "0")}`
-                  : transcribing
-                    ? "…"
-                    : "🎤"}
+                {recording ? (
+                  `■ 0:${String(recorder.seconds).padStart(2, "0")}`
+                ) : transcribing ? (
+                  "…"
+                ) : (
+                  // Icon vẽ tay thay cho emoji 🎤: font Windows vẽ emoji trắng
+                  // đen ở cỡ nhỏ trông như cây bút, người dùng không nhận ra.
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                    className="w-5 h-5"
+                  >
+                    <rect x="9" y="2" width="6" height="12" rx="3" />
+                    <path d="M5 11a7 7 0 0 0 14 0" />
+                    <path d="M12 18v4" />
+                  </svg>
+                )}
               </button>
             )}
             <button

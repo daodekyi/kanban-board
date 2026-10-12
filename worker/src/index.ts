@@ -85,7 +85,9 @@ const MODELS: Record<ProviderKey, ModelConfig> = {
     contextLimit: 1_000_000,
   },
   deepseek: {
-    label: "DeepSeek V4 Flash (OpenRouter)",
+    // Giữ lại có chủ ý để so sánh: bộ eval 16 case chỉ đạt 7/16 (11/10/2026),
+    // hay gửi nhầm removeBoard — khung xác nhận xóa chặn được. Nhãn nói thật.
+    label: "DeepSeek V4 Flash · thử nghiệm, kém ổn định (7/16)",
     id: "deepseek/deepseek-v4-flash",
     baseURL: "https://openrouter.ai/api/v1",
     secret: "OPENROUTER_API_KEY",

@@ -25,6 +25,7 @@ Bản bài 10 (commit `48bc8c3`) chưa có Agent và chưa có Worker. Từ đó
 | 10 | **Nhãn model nói thật** | — | DeepSeek ghi rõ "thử nghiệm, kém ổn định (7/16)" sau khi đo | Người dùng biết chọn model nào |
 | 11 | **Lịch sử chat còn sau F5** | — | Lưu theo từng tài khoản, nút "Dọn" để xóa | Không mất ngữ cảnh khi tải lại |
 | 12 | **Dữ liệu board chuyển sang Cloudflare D1** | Supabase lo cả dữ liệu lẫn đăng nhập | Board/cột/thẻ lưu trên D1 qua Worker, mỗi tài khoản chỉ thấy dữ liệu của mình. Nếu lưu lên máy chủ bị lỗi, app hiện băng **"Chưa lưu được thay đổi"** kèm lý do và nút **"Thử lại"** (đã thử thật bằng cách tắt mạng — TC-15). **Đăng nhập Google vẫn qua Supabase Auth** (giai đoạn 2 mới chuyển) | Dữ liệu và Agent cùng nằm trên Cloudflare. Trước đây lưu lỗi thì app không báo gì, người dùng tưởng đã lưu; giờ thì biết ngay để bấm Thử lại |
+| 13 | **Thanh đo Context** | — | Đầu khung chat hiện cuộc chat đang chiếm bao nhiêu "bộ nhớ" của model (vd "16.801 / 1.050.000 token"); đổi màu cam khi đầy 75%, đỏ khi đầy 90%; nút "Dọn" để giải phóng | Thấy được cuộc chat dài cỡ nào so với giới hạn của model; dọn bớt khi cần |
 
 ## 🏁 Model nào làm tốt nhất, nhanh cỡ nào
 ### Bộ đánh giá tự động: 16 test case × 4 model
